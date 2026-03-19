@@ -1,0 +1,82 @@
+/**
+ * Bark 通知发送器
+ * 支持普通模式和紧急模式
+ */
+
+const https = require('https');
+
+class BarkSender {
+  /**
+   * 构建 Bark URL
+   * @param {Object} config - Bark 配置
+   * @param {Object} message - 消息对象
+   * @param {string} mode - 通知模式：'normal' | 'critical'
+   * @returns {string} 完整的 URL
+   */
+  buildUrl(config, message, mode = 'normal') {
+    const baseUrl = config.serverUrl || 'https://api.day.app';
+    
+    // URL 编码标题和内容
+    const encodedTitle = encodeURIComponent(message.title);
+    const encodedContent = encodeURIComponent(message.content);
+    
+    // 基础参数
+    let url = `${baseUrl}/${config.key}/${encodedTitle}/${encodedContent}?sound=${encodeURIComponent(config.sound)}`;
+    
+    // 紧急模式参数
+    if (mode === 'critical') {
+      url += `&level=critical&volume=${config.volume}`;
+    }
+    
+    return url;
+  }
+
+  /**
+   * 发送 Bark 通知
+   * @param {Object} config - Bark 配置
+   * @param {Object} message - 消息对象
+   * @param {string} mode - 通知模式
+   * @returns {Promise<Object>} 发送结果
+   */
+  async send(config, message, mode = 'normal') {
+    const url = this.buildUrl(config, message, mode);
+    
+    // 打印日志（脱敏 key）
+    const maskedKey = config.key ? config.key.substring(0, 3) + '***' : 'N/A';
+    console.log(`[Bark] 发送通知：title="${message.title}", mode=${mode}, key=${maskedKey}`);
+    console.log(`[Bark] URL: ${url}`);
+
+    return new Promise((resolve, reject) => {
+      https.get(url, (res) => {
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          try {
+            const result = JSON.parse(data);
+            console.log(`[Bark] 响应：code=${result.code}, message=${result.message}`);
+            resolve({
+              success: result.code === 200,
+              message: result.message,
+              mode
+            });
+          } catch (err) {
+            resolve({
+              success: res.statusCode === 200,
+              message: data,
+              mode
+            });
+          }
+        });
+      }).on('error', (err) => {
+        console.error(`[Bark] 请求错误：${err.message}`);
+        reject(err);
+      });
+    });
+  }
+}
+
+module.exports = BarkSender;

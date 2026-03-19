@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🦐 Crypto Radar - Web3 双轨行情雷达</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- 顶部导航 -->
+    <nav class="navbar">
+      <div class="logo">🦐 Crypto Radar</div>
+      <div class="nav-links">
+        <a href="#" data-page="dashboard" class="active">仪表盘</a>
+        <a href="#" data-page="monitor">行情监控</a>
+        <a href="#" data-page="alerts">报警历史</a>
+        <a href="#" data-page="settings">设置</a>
+      </div>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main id="main-content">
+      <!-- 首页/仪表盘 -->
+      <section id="dashboard" class="page active">
+        <h1>📊 系统仪表盘</h1>
+        
+        <!-- 系统总开关 -->
+        <div class="system-toggle-card">
+          <div class="toggle-header">
+            <h3>🔌 系统监控</h3>
+            <label class="toggle-switch">
+              <input type="checkbox" id="systemToggle" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <p class="toggle-status" id="toggleStatus">系统运行中</p>
+        </div>
+
+        <!-- 实时状态 -->
+        <div class="status-grid">
+          <div class="stat-card">
+            <div class="stat-label">运行时间</div>
+            <div class="stat-value" id="uptime">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">内存使用</div>
+            <div class="stat-value" id="memory">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">监控币种</div>
+            <div class="stat-value" id="symbols-count">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">启用币种</div>
+            <div class="stat-value" id="enabled-count">-</div>
+          </div>
+        </div>
+
+        <!-- 币种列表卡片 -->
+        <div class="card">
+          <h2>币种实时监控</h2>
+          <div id="symbol-cards" class="symbol-grid">
+            <!-- 动态生成 -->
+          </div>
+        </div>
+      </section>
+
+      <!-- 币种监控（整合页面） -->
+      <section id="monitor" class="page">
+        <!-- 币种列表 -->
+        <div class="card">
+          <div class="card-header">
+            <h2>📋 监控列表</h2>
+            <button class="btn btn-primary" onclick="showAddSymbolModal()">+ 添加币种</button>
+          </div>
+          
+          <!-- Bark 通知控制条 -->
+          <div class="bark-control-bar">
+            <span class="bark-control-label">🔔 启用 Bark 通知</span>
+            
+            <!-- 开关 -->
+            <label class="toggle-switch">
+              <input type="checkbox" id="monitor-bark-toggle" onchange="toggleMonitorBark()">
+              <span class="toggle-slider"></span>
+            </label>
+            
+            <!-- 模式选择容器 (条件显示) -->
+            <div id="monitor-bark-mode-container" class="bark-mode-container visible">
+              <label class="bark-mode-radio">
+                <input type="radio" name="monitor-bark-mode" value="normal" checked onchange="saveMonitorBarkMode()">
+                <span class="bark-mode-radio-label">普通模式</span>
+              </label>
+              <label class="bark-mode-radio">
+                <input type="radio" name="monitor-bark-mode" value="critical" onchange="saveMonitorBarkMode()">
+                <span class="bark-mode-radio-label">紧急模式</span>
+                <span class="bark-mode-hint">（可在睡眠模式下响铃）</span>
+              </label>
+            </div>
+          </div>
+          
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>币种</th>
+                <th>类型</th>
+                <th>当前价格</th>
+                <th>方向</th>
+                <th>目标价</th>
+                <th>状态</th>
+                <th>监控</th>
+                <th>编辑</th>
+                <th>删除</th>
+              </tr>
+            </thead>
+            <tbody id="monitor-table">
+              <!-- 动态生成 -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 波动侦测参数 -->
+        <div class="card">
+          <h2>🌊 波动侦测</h2>
+          
+          <!-- Bark 通知控制条 -->
+          <div class="bark-control-bar">
+            <span class="bark-control-label">🔔 启用 Bark 通知</span>
+            
+            <!-- 开关 -->
+            <label class="toggle-switch">
+              <input type="checkbox" id="volatility-bark-toggle" onchange="toggleVolatilityBark()">
+              <span class="toggle-slider"></span>
+            </label>
+            
+            <!-- 模式选择容器 (条件显示) -->
+            <div id="volatility-bark-mode-container" class="bark-mode-container">
+              <label class="bark-mode-radio">
+                <input type="radio" name="volatility-bark-mode" value="normal" checked onchange="saveVolatilityBarkMode()">
+                <span class="bark-mode-radio-label">普通模式</span>
+              </label>
+              <label class="bark-mode-radio">
+                <input type="radio" name="volatility-bark-mode" value="urgent" onchange="saveVolatilityBarkMode()">
+                <span class="bark-mode-radio-label">紧急模式</span>
+                <span class="bark-mode-hint">（可在睡眠模式下响铃）</span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="volatility-section">
+            <div class="volatility-row">
+              <span class="volatility-label">监控范围：</span>
+              <label class="radio-label">
+                <input type="radio" name="volatilityScope" value="global" checked onchange="updateVolatilityScope()">
+                全局监控（所有币种）
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="volatilityScope" value="added" onchange="updateVolatilityScope()">
+                仅已添加币种
+              </label>
+            </div>
+            
+            <div class="volatility-row">
+              <span class="volatility-label">时间窗口：</span>
+              <div class="select-with-input">
+                <select id="volatilityWindow" class="styled-select">
+                  <option value="3">3 分钟</option>
+                  <option value="5" selected>5 分钟</option>
+                  <option value="custom">自定义</option>
+                </select>
+                <input type="number" id="volatilityWindowCustom" class="custom-input" value="5" disabled>
+                <span class="input-suffix">分钟</span>
+              </div>
+            </div>
+            
+            <div class="volatility-row">
+              <span class="volatility-label">涨跌幅：</span>
+              <div class="select-with-input">
+                <select id="volatilityThreshold" class="styled-select">
+                  <option value="10">10%</option>
+                  <option value="20" selected>20%</option>
+                  <option value="30">30%</option>
+                  <option value="custom">自定义</option>
+                </select>
+                <input type="number" id="volatilityThresholdCustom" class="custom-input" value="20" disabled>
+                <span class="input-suffix">%</span>
+              </div>
+            </div>
+            
+            <div class="volatility-row">
+              <span class="volatility-label">状态：</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="volatilityToggle" onchange="toggleVolatility(this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+              <span id="volatilityStatus" class="volatility-status-text">启用</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- 报警历史 -->
+      <section id="alerts" class="page">
+        <h1>🔔 报警历史</h1>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2>报警记录</h2>
+            <div class="filter-group">
+              <select id="alert-symbol-filter">
+                <option value="">全部币种</option>
+              </select>
+              <button class="btn" onclick="loadAlerts()">刷新</button>
+            </div>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>币种</th>
+                <th>详情</th>
+                <th>触发时间</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody id="alerts-table">
+              <!-- 动态生成 -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 测试通知结果弹窗 -->
+
+      <!-- 系统设置 -->
+      <section id="settings" class="page">
+        <h1>⚙️ 系统设置</h1>
+        
+        <!-- 测试模式提示 -->
+        <div class="test-mode-banner" id="test-mode-banner" style="display: none;">
+          ⚠️ 测试模式已启用：通知仅弹窗验证，不会真实发送
+          <button onclick="disableTestMode()">×</button>
+        </div>
+        
+        <div class="card">
+          <h2>📱 Bark 通知 (iOS)</h2>
+          
+          <form id="bark-notification-form" class="settings-form">
+            <div class="form-group">
+              <label for="bark-key">Bark API Key</label>
+              <input type="text" id="bark-key" placeholder="p8ZxX..." autocomplete="off">
+              <p class="hint">在 Bark App 中获取设备密钥</p>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="bark-sound">铃声名称</label>
+                <input type="text" id="bark-sound" placeholder="minuet" value="minuet">
+                <p class="hint">Bark 内置铃声或自定义铃声文件名</p>
+              </div>
+              
+              <div class="form-group">
+                <label for="bark-volume">紧急模式音量</label>
+                <input type="number" id="bark-volume" min="0" max="10" value="5" step="1">
+                <p class="hint">范围：0-10，仅紧急模式生效</p>
+              </div>
+            </div>
+            
+            <div class="form-actions">
+              <button type="button" class="btn btn-primary" onclick="testBarkNotification()">
+                测试 Bark 通知
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="saveBarkConfig()">
+                保存 Bark 配置
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Telegram 通知配置 -->
+        <div class="card">
+          <h2>✈️ Telegram 通知</h2>
+          
+          <form id="telegram-notification-form" class="settings-form">
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="tg-enabled">
+                <span>启用 Telegram 通知</span>
+              </label>
+            </div>
+            
+            <div class="form-group">
+              <label for="tg-token">Bot API Token</label>
+              <input type="text" id="tg-token" placeholder="123456:ABC..." autocomplete="off">
+              <p class="hint">从 @BotFather 获取 Bot Token</p>
+            </div>
+            
+            <div class="form-group">
+              <label for="tg-chat-id">接收人 Chat ID</label>
+              <input type="text" id="tg-chat-id" placeholder="123456789" autocomplete="off">
+              <p class="hint">使用 @userinfobot 查询你的 Chat ID</p>
+            </div>
+            
+            <div class="form-actions">
+              <button type="button" class="btn btn-primary" onclick="testTelegramNotification()">
+                测试 Telegram 通知
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="saveTelegramConfig()">
+                保存 Telegram 配置
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- 系统参数设置 -->
+        <div class="card">
+          <h2>⚙️ 系统参数</h2>
+          <form id="system-form" class="settings-form">
+            <div class="form-group">
+              <label>检查间隔（分钟）</label>
+              <input type="number" id="check-interval" min="1" value="1">
+            </div>
+            <div class="form-group">
+              <label>静默期（分钟）</label>
+              <input type="number" id="silence-interval" min="1" value="5">
+            </div>
+            <div class="form-group">
+              <label>最大价格记录数/币种</label>
+              <input type="number" id="max-records" min="100" value="1440">
+            </div>
+            <div class="form-group">
+              <label>最大币种数</label>
+              <input type="number" id="max-symbols" min="1" value="20">
+            </div>
+            <button type="submit" class="btn btn-primary">保存配置</button>
+          </form>
+        </div>
+
+
+      </section>
+    </main>
+
+    <!-- 添加币种模态框 -->
+    <div id="add-symbol-modal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeModal('add-symbol-modal')">&times;</span>
+        
+        <h2>添加币种</h2>
+        <form id="add-symbol-form" class="settings-form">
+          <!-- 第一行：数据源选择 -->
+          <div class="form-group">
+            <label>数据源</label>
+            <select id="addSymbolSource" class="form-control" onchange="onSourceChange()">
+              <option value="spot">现货</option>
+              <option value="alpha">Alpha</option>
+            </select>
+          </div>
+          
+          <!-- 第二行：搜索框 -->
+          <div class="form-group autocomplete-container">
+            <label>搜索币种</label>
+            <input type="text" id="addSymbolSearch" class="form-control" placeholder="输入币种..." autocomplete="off">
+            <div id="addSymbolResults" class="autocomplete-list"></div>
+          </div>
+          
+          <!-- 隐藏的币种代码输入（用于提交） -->
+          <input type="hidden" id="new-symbol">
+          
+          <!-- 价格目标设置 -->
+          <div class="form-group">
+            <label>目标类型 *</label>
+            <!-- 目标类型 -->
+            <div class="radio-group">
+              <label>
+                <input type="radio" name="targetType" value="above" checked>
+                <span class="radio-label">上穿 🟢</span>
+              </label>
+              <label>
+                <input type="radio" name="targetType" value="below">
+                <span class="radio-label">下破 🔴</span>
+              </label>
+            </div>
+            <small class="form-hint">请选择目标类型</small>
+          </div>
+          <div class="form-group">
+            <label>目标价格 *</label>
+<!-- 测试通知结果弹窗 -->
+            <input type="number" id="targetPrice" class="form-control" placeholder="输入目标价格" step="0.000001" style="margin-top: 10px;">
+            <small class="form-hint">请填写目标价格</small>
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="new-symbol-enabled" checked> 启用
+            </label>
+          </div>
+          
+          <!-- 错误提示区域（移到按钮上方） -->
+          <div id="addSymbolError" class="error-message" style="display: none; margin-bottom: 15px;">
+            <span class="error-icon">⚠️</span>
+            <span class="error-text"></span>
+          </div>
+          
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">确认添加</button>
+            <button type="button" class="btn" onclick="closeModal('add-symbol-modal')">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 编辑币种弹窗 -->
+    <div id="edit-symbol-modal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeModal('edit-symbol-modal')">&times;</span>
+        
+        <h2>编辑币种</h2>
+        <form id="edit-symbol-form" class="settings-form">
+          <!-- 隐藏字段：币种名称（不可修改） -->
+          <input type="hidden" id="edit-symbol-name">
+          
+          <!-- 数据源（只读） -->
+          <div class="form-group">
+            <label>数据源</label>
+            <input type="text" id="edit-source" readonly>
+          </div>
+          
+          <!-- 目标类型 -->
+          <div class="form-group">
+            <label>目标类型 *</label>
+            <div class="radio-group">
+              <label>
+                <input type="radio" name="edit-targetType" value="above">
+                <span class="radio-label">上穿 🟢</span>
+              </label>
+              <label>
+                <input type="radio" name="edit-targetType" value="below">
+                <span class="radio-label">下破 🔴</span>
+              </label>
+            </div>
+          </div>
+          
+          <!-- 目标价格 -->
+          <div class="form-group">
+            <label>目标价格 *</label>
+            <input type="number" id="edit-targetPrice" class="form-control" placeholder="输入目标价格" step="0.000001">
+          </div>
+          
+          <!-- 错误提示 -->
+          <div id="editSymbolError" class="error-message" style="display: none;">
+            <span class="error-icon">⚠️</span>
+            <span class="error-text"></span>
+          </div>
+          
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" onclick="updateSymbol()">保存修改</button>
+            <button type="button" class="btn" onclick="closeModal('edit-symbol-modal')">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 删除确认弹窗 -->
+    <div id="delete-confirm-modal" class="modal">
+      <div class="modal-content warning">
+        <div class="modal-icon">⚠️</div>
+        <h3>确认删除？</h3>
+        <p id="delete-confirm-text">确定要删除此币种吗？</p>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeDeleteModal()">取消</button>
+          <button class="btn-confirm" onclick="confirmDeleteSymbol()">确认删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 关闭系统确认弹窗 -->
+    <div id="stopConfirmModal" class="modal">
+      <div class="modal-content warning">
+        <div class="modal-icon">⚠️</div>
+        <h3>确认关闭系统监控？</h3>
+        <p>关闭后将不再监控任何币种，不会接收价格更新和报警推送。</p>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeStopModal()">取消</button>
+          <button class="btn-confirm" onclick="confirmStopSystem()">确认关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+
+  <!-- 测试通知结果弹窗 -->
+  <div id="test-notification-modal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('test-notification-modal')">&times;</span>
+      <h2>🧪 测试通知</h2>
+
+      <div class="test-section">
+        <h3>Bark 通知</h3>
+        <div class="test-url-box">
+          <label>拼装 URL:</label>
+          <code id="test-bark-url"></code>
+        </div>
+        <div class="test-info">
+          <div class="info-row">
+            <span class="info-label">标题:</span>
+            <span class="info-value" id="test-bark-title"></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">内容:</span>
+            <span class="info-value" id="test-bark-content"></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">模式:</span>
+            <span class="info-value" id="test-bark-mode"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="test-section">
+        <h3>Telegram 通知</h3>
+        <div class="test-url-box">
+          <label>拼装 URL:</label>
+          <code id="test-tg-url"></code>
+        </div>
+        <div class="test-info">
+          <div class="info-row">
+            <span class="info-label">消息文本:</span>
+            <span class="info-value" id="test-tg-text"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="closeModal('test-notification-modal')">
+          关闭
+        </button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

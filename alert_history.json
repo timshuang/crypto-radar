@@ -1,0 +1,1005 @@
+{
+  "history": [
+    {
+      "id": "alert_1773944029319",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2127,
+      "currentPrice": 2128.35,
+      "triggeredAt": 1773944029318,
+      "read": false
+    },
+    {
+      "id": "alert_1773943729293",
+      "symbol": "GUA",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 0.0278,
+      "currentPrice": 0.27807359,
+      "triggeredAt": 1773943729292,
+      "read": false
+    },
+    {
+      "id": "alert_1773943549286",
+      "symbol": "GUA",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 0.027815,
+      "currentPrice": 0.27814059,
+      "triggeredAt": 1773943549286,
+      "read": false
+    },
+    {
+      "id": "alert_1773943429232",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 69800,
+      "currentPrice": 69746.38,
+      "triggeredAt": 1773943429232,
+      "read": false
+    },
+    {
+      "id": "alert_1773943309366",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 69840,
+      "currentPrice": 69808.12,
+      "triggeredAt": 1773943309365,
+      "read": false
+    },
+    {
+      "id": "alert_1773942720510",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69750,
+      "currentPrice": 69755.37,
+      "triggeredAt": 1773942720510,
+      "read": false
+    },
+    {
+      "id": "alert_1773942624804",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2122,
+      "currentPrice": 2122.48,
+      "triggeredAt": 1773942624804,
+      "read": false
+    },
+    {
+      "id": "alert_1773942564952",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69650,
+      "currentPrice": 69669.6,
+      "triggeredAt": 1773942564951,
+      "read": false
+    },
+    {
+      "id": "alert_1773941733775",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2120,
+      "currentPrice": 2119.11,
+      "triggeredAt": 1773941733775,
+      "read": false
+    },
+    {
+      "id": "alert_1773941725516",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 69600,
+      "currentPrice": 69572.01,
+      "triggeredAt": 1773941725510,
+      "read": false
+    },
+    {
+      "id": "alert_1773941500790",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69750,
+      "currentPrice": 69768.71,
+      "triggeredAt": 1773941500790,
+      "read": false
+    },
+    {
+      "id": "alert_1773941380704",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2127,
+      "currentPrice": 2125.32,
+      "triggeredAt": 1773941380704,
+      "read": false
+    },
+    {
+      "id": "alert_1773941260757",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69650,
+      "currentPrice": 69685.2,
+      "triggeredAt": 1773941260757,
+      "read": false
+    },
+    {
+      "id": "alert_1773941080829",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2125,
+      "currentPrice": 2124.73,
+      "triggeredAt": 1773941080828,
+      "read": false
+    },
+    {
+      "id": "alert_1773940745751",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2113,
+      "currentPrice": 2115.99,
+      "triggeredAt": 1773940745751,
+      "read": false
+    },
+    {
+      "id": "alert_1773940737567",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69350,
+      "currentPrice": 69379.97,
+      "triggeredAt": 1773940737567,
+      "read": false
+    },
+    {
+      "id": "alert_1773940625761",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2110,
+      "currentPrice": 2110.17,
+      "triggeredAt": 1773940625760,
+      "read": false
+    },
+    {
+      "id": "alert_1773940617518",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 69250,
+      "currentPrice": 69249.76,
+      "triggeredAt": 1773940617517,
+      "read": false
+    },
+    {
+      "id": "alert_1773940445710",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2110,
+      "currentPrice": 2107.03,
+      "triggeredAt": 1773940445710,
+      "read": false
+    },
+    {
+      "id": "alert_1773940437541",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 69300,
+      "currentPrice": 69165.05,
+      "triggeredAt": 1773940437540,
+      "read": false
+    },
+    {
+      "id": "alert_1773940317502",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2110,
+      "currentPrice": 2110.23,
+      "triggeredAt": 1773940317502,
+      "read": false
+    },
+    {
+      "id": "alert_1773940137535",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2110,
+      "currentPrice": 2109.49,
+      "triggeredAt": 1773940137535,
+      "read": false
+    },
+    {
+      "id": "alert_1773940077587",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2110,
+      "currentPrice": 2109.86,
+      "triggeredAt": 1773940077587,
+      "read": false
+    },
+    {
+      "id": "alert_1773935457529",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69230,
+      "currentPrice": 69231.55,
+      "triggeredAt": 1773935457529,
+      "read": false
+    },
+    {
+      "id": "alert_1773934737519",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69230,
+      "currentPrice": 69317.55,
+      "triggeredAt": 1773934737519,
+      "read": false
+    },
+    {
+      "id": "alert_1773933185495",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2325,
+      "currentPrice": 2127,
+      "triggeredAt": 1773933185494,
+      "read": false
+    },
+    {
+      "id": "alert_1773933177486",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 69700,
+      "currentPrice": 69664.51,
+      "triggeredAt": 1773933177486,
+      "read": false
+    },
+    {
+      "id": "alert_1773933005623",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2325,
+      "currentPrice": 2127.25,
+      "triggeredAt": 1773933005623,
+      "read": false
+    },
+    {
+      "id": "alert_1773932997484",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69700,
+      "currentPrice": 69739.48,
+      "triggeredAt": 1773932997484,
+      "read": false
+    },
+    {
+      "id": "alert_1773928737526",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69900,
+      "currentPrice": 69904.24,
+      "triggeredAt": 1773928737526,
+      "read": false
+    },
+    {
+      "id": "alert_1773927597468",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 69300,
+      "currentPrice": 69306.14,
+      "triggeredAt": 1773927597467,
+      "read": false
+    },
+    {
+      "id": "alert_1773907415578",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 74220,
+      "currentPrice": 70162.63,
+      "triggeredAt": 1773907415578,
+      "read": false
+    },
+    {
+      "id": "alert_1773907355571",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 74220,
+      "currentPrice": 70287.18,
+      "triggeredAt": 1773907355571,
+      "read": false
+    },
+    {
+      "id": "alert_1773883954709",
+      "symbol": "CYS",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 0.506,
+      "currentPrice": 0.50570777,
+      "triggeredAt": 1773883954709,
+      "read": false
+    },
+    {
+      "id": "alert_1773865527133",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 74220,
+      "currentPrice": 70892.42,
+      "triggeredAt": 1773865527132,
+      "read": false
+    },
+    {
+      "id": "alert_1773766458564",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 74220,
+      "currentPrice": 74210.01,
+      "triggeredAt": 1773766458564,
+      "read": false
+    },
+    {
+      "id": "alert_1773765618554",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2322,
+      "currentPrice": 2324.76,
+      "triggeredAt": 1773765618553,
+      "read": false
+    },
+    {
+      "id": "alert_1773765558553",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2322,
+      "currentPrice": 2321.41,
+      "triggeredAt": 1773765558553,
+      "read": false
+    },
+    {
+      "id": "alert_1773765498556",
+      "symbol": "CYS",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 0.506,
+      "currentPrice": 0.4870866,
+      "triggeredAt": 1773765498555,
+      "read": false
+    },
+    {
+      "id": "alert_1773763578540",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74044,
+      "triggeredAt": 1773763578540,
+      "read": false
+    },
+    {
+      "id": "alert_1773763398543",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 2315,
+      "currentPrice": 2314.47,
+      "triggeredAt": 1773763398542,
+      "read": false
+    },
+    {
+      "id": "alert_1773762978534",
+      "symbol": "CYS",
+      "source": "target",
+      "type": "below",
+      "targetPrice": 0.506,
+      "currentPrice": 0.5051744,
+      "triggeredAt": 1773762978534,
+      "read": false
+    },
+    {
+      "id": "alert_1773706997177",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 70000,
+      "currentPrice": 75150.7,
+      "triggeredAt": 1773706997177,
+      "read": false
+    },
+    {
+      "id": "alert_1773706937219",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 70000,
+      "currentPrice": 75198.91,
+      "triggeredAt": 1773706937219,
+      "read": false
+    },
+    {
+      "id": "alert_1773706801387",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 70000,
+      "currentPrice": 75226.57,
+      "triggeredAt": 1773706801387,
+      "read": false
+    },
+    {
+      "id": "alert_1773706621422",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2373.06,
+      "triggeredAt": 1773706621421,
+      "read": false
+    },
+    {
+      "id": "alert_1773706621412",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75456,
+      "triggeredAt": 1773706621411,
+      "read": false
+    },
+    {
+      "id": "alert_1773706582572",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2369.48,
+      "triggeredAt": 1773706582572,
+      "read": false
+    },
+    {
+      "id": "alert_1773706582569",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75351.85,
+      "triggeredAt": 1773706582569,
+      "read": false
+    },
+    {
+      "id": "alert_1773706522572",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2372.67,
+      "triggeredAt": 1773706522572,
+      "read": false
+    },
+    {
+      "id": "alert_1773706522568",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75472.19,
+      "triggeredAt": 1773706522568,
+      "read": false
+    },
+    {
+      "id": "alert_1773706462571",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2370.49,
+      "triggeredAt": 1773706462571,
+      "read": false
+    },
+    {
+      "id": "alert_1773706462568",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75422.6,
+      "triggeredAt": 1773706462568,
+      "read": false
+    },
+    {
+      "id": "alert_1773706402570",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2359.27,
+      "triggeredAt": 1773706402570,
+      "read": false
+    },
+    {
+      "id": "alert_1773706402568",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75302.1,
+      "triggeredAt": 1773706402568,
+      "read": false
+    },
+    {
+      "id": "alert_1773706342572",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2356.85,
+      "triggeredAt": 1773706342572,
+      "read": false
+    },
+    {
+      "id": "alert_1773706342569",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75283.27,
+      "triggeredAt": 1773706342568,
+      "read": false
+    },
+    {
+      "id": "alert_1773706282573",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2358.55,
+      "triggeredAt": 1773706282572,
+      "read": false
+    },
+    {
+      "id": "alert_1773706282569",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75257.99,
+      "triggeredAt": 1773706282569,
+      "read": false
+    },
+    {
+      "id": "alert_1773706222572",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2351.03,
+      "triggeredAt": 1773706222572,
+      "read": false
+    },
+    {
+      "id": "alert_1773706222569",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 75000,
+      "currentPrice": 75087.99,
+      "triggeredAt": 1773706222569,
+      "read": false
+    },
+    {
+      "id": "alert_1773706162567",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2346.56,
+      "triggeredAt": 1773706162567,
+      "read": false
+    },
+    {
+      "id": "alert_1773706102568",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2350.61,
+      "triggeredAt": 1773706102568,
+      "read": false
+    },
+    {
+      "id": "alert_1773706042569",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2352.25,
+      "triggeredAt": 1773706042569,
+      "read": false
+    },
+    {
+      "id": "alert_1773706042566",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74954.22,
+      "triggeredAt": 1773706042566,
+      "read": false
+    },
+    {
+      "id": "alert_1773705982570",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2346.34,
+      "triggeredAt": 1773705982570,
+      "read": false
+    },
+    {
+      "id": "alert_1773705982566",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74810.74,
+      "triggeredAt": 1773705982566,
+      "read": false
+    },
+    {
+      "id": "alert_1773705922570",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2344.06,
+      "triggeredAt": 1773705922570,
+      "read": false
+    },
+    {
+      "id": "alert_1773705922566",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74772.34,
+      "triggeredAt": 1773705922566,
+      "read": false
+    },
+    {
+      "id": "alert_1773705862569",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2343.27,
+      "triggeredAt": 1773705862569,
+      "read": false
+    },
+    {
+      "id": "alert_1773705862560",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74724.22,
+      "triggeredAt": 1773705862560,
+      "read": false
+    },
+    {
+      "id": "alert_1773705802563",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2344.65,
+      "triggeredAt": 1773705802563,
+      "read": false
+    },
+    {
+      "id": "alert_1773705802560",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74746.27,
+      "triggeredAt": 1773705802560,
+      "read": false
+    },
+    {
+      "id": "alert_1773705742564",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2341.77,
+      "triggeredAt": 1773705742564,
+      "read": false
+    },
+    {
+      "id": "alert_1773705742561",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74649.36,
+      "triggeredAt": 1773705742561,
+      "read": false
+    },
+    {
+      "id": "alert_1773705682570",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2342.7,
+      "triggeredAt": 1773705682570,
+      "read": false
+    },
+    {
+      "id": "alert_1773705682562",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74652.53,
+      "triggeredAt": 1773705682562,
+      "read": false
+    },
+    {
+      "id": "alert_1773705622566",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2347.75,
+      "triggeredAt": 1773705622566,
+      "read": false
+    },
+    {
+      "id": "alert_1773705622561",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74843.83,
+      "triggeredAt": 1773705622561,
+      "read": false
+    },
+    {
+      "id": "alert_1773705562569",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2350.83,
+      "triggeredAt": 1773705562569,
+      "read": false
+    },
+    {
+      "id": "alert_1773705562565",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74845.71,
+      "triggeredAt": 1773705562565,
+      "read": false
+    },
+    {
+      "id": "alert_1773705502561",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2351.64,
+      "triggeredAt": 1773705502561,
+      "read": false
+    },
+    {
+      "id": "alert_1773705502558",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74874.17,
+      "triggeredAt": 1773705502558,
+      "read": false
+    },
+    {
+      "id": "alert_1773705442564",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2351.11,
+      "triggeredAt": 1773705442564,
+      "read": false
+    },
+    {
+      "id": "alert_1773705442558",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74843.39,
+      "triggeredAt": 1773705442558,
+      "read": false
+    },
+    {
+      "id": "alert_1773705382590",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2351.23,
+      "triggeredAt": 1773705382590,
+      "read": false
+    },
+    {
+      "id": "alert_1773705382567",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74832.3,
+      "triggeredAt": 1773705382567,
+      "read": false
+    },
+    {
+      "id": "alert_1773705322561",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2351.02,
+      "triggeredAt": 1773705322561,
+      "read": false
+    },
+    {
+      "id": "alert_1773705322557",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74779.23,
+      "triggeredAt": 1773705322557,
+      "read": false
+    },
+    {
+      "id": "alert_1773705262560",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2349.41,
+      "triggeredAt": 1773705262560,
+      "read": false
+    },
+    {
+      "id": "alert_1773705262557",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74745.74,
+      "triggeredAt": 1773705262557,
+      "read": false
+    },
+    {
+      "id": "alert_1773705202559",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2349.82,
+      "triggeredAt": 1773705202559,
+      "read": false
+    },
+    {
+      "id": "alert_1773705202557",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74736.26,
+      "triggeredAt": 1773705202557,
+      "read": false
+    },
+    {
+      "id": "alert_1773705142562",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2347.29,
+      "triggeredAt": 1773705142562,
+      "read": false
+    },
+    {
+      "id": "alert_1773705142556",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74691.5,
+      "triggeredAt": 1773705142556,
+      "read": false
+    },
+    {
+      "id": "alert_1773705082561",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2349.39,
+      "triggeredAt": 1773705082561,
+      "read": false
+    },
+    {
+      "id": "alert_1773705082557",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74768.1,
+      "triggeredAt": 1773705082556,
+      "read": false
+    },
+    {
+      "id": "alert_1773705022559",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2355.65,
+      "triggeredAt": 1773705022559,
+      "read": false
+    },
+    {
+      "id": "alert_1773705022556",
+      "symbol": "BTCUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 74000,
+      "currentPrice": 74854.49,
+      "triggeredAt": 1773705022556,
+      "read": false
+    },
+    {
+      "id": "alert_1773704962557",
+      "symbol": "ETHUSDT",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 2300,
+      "currentPrice": 2353.17,
+      "triggeredAt": 1773704962557,
+      "read": false
+    }
+  ],
+  "lastUpdate": "2026-03-19T18:13:49.319Z"
+}

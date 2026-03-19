@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "createdAt": "2026-03-12T10:00:00Z",
+  "updatedAt": "2026-03-12T10:00:00Z",
+  "bark": {
+    "enabled": true,
+    "deviceKey": "YOUR_DEVICE_KEY_HERE",
+    "serverUrl": "https://api.day.app",
+    "sound": "alarm.mp3",
+    "group": "crypto_radar"
+  },
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "enabled": true,
+      "source": "spot",
+      "targets": [
+        {
+          "id": "target_1",
+          "type": "above",
+          "price": 50000,
+          "enabled": true,
+          "status": "waiting"
+        },
+        {
+          "id": "target_2",
+          "type": "below",
+          "price": 45000,
+          "enabled": true,
+          "status": "waiting"
+        }
+      ],
+      "volatility": {
+        "enabled": true,
+        "windowMinutes": 60,
+        "thresholdPercent": 2.0,
+        "stepThreshold": 0.5
+      }
+    },
+    {
+      "symbol": "ETHUSDT",
+      "enabled": true,
+      "source": "spot",
+      "targets": [],
+      "volatility": {
+        "enabled": true,
+        "windowMinutes": 60,
+        "thresholdPercent": 3.0,
+        "stepThreshold": 0.5
+      }
+    }
+  ],
+  "settings": {
+    "checkIntervalMinutes": 1,
+    "alertSilenceMinutes": 5,
+    "maxPriceRecordsPerSymbol": 1440,
+    "maxSymbols": 20
+  }
+}

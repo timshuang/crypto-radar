@@ -1,0 +1,26 @@
+{
+  "name": "crypto_radar",
+  "version": "1.0.0",
+  "description": "Web3 双轨行情雷达系统 - 币安现货+Alpha 双源监控",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --expose-gc src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "crypto",
+    "binance",
+    "monitor",
+    "alert",
+    "web3"
+  ],
+  "author": "虾指挥",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

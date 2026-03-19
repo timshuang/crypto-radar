@@ -1,0 +1,74 @@
+/**
+ * 消息模板引擎
+ * 负责拼装通知标题和内容
+ */
+
+class Templater {
+  /**
+   * 构建消息对象
+   * @param {Object} alert - 告警对象
+   * @returns {Object} 消息对象 { title, content }
+   */
+  buildMessage(alert) {
+    if (alert.source === 'target') {
+      return this.buildTargetAlert(alert);
+    } else if (alert.source === 'volatility') {
+      return this.buildVolatilityAlert(alert);
+    } else {
+      throw new Error(`未知的告警类型：${alert.source}`);
+    }
+  }
+
+  /**
+   * 构建价格预警消息（极致极简格式）
+   * 格式：[现货/Alpha] {币种名称} {上穿/下破} {目标价格}
+   * 示例：[现货] BTCUSDT 上穿 69900
+   */
+  buildTargetAlert(alert) {
+    const sourceType = alert.sourceType || '现货'; // '现货' 或 'Alpha'
+    const action = alert.type === 'above' ? '上穿' : '下破';
+    
+    const title = '价格预警';  // 标题保持不变
+    // 极致极简格式：禁止出现"价格预警"、"动作"、"币种类型"等任何辅助性汉字
+    const content = `[${sourceType}] ${alert.symbol} ${action} ${this.formatPrice(alert.targetPrice)}`;
+    
+    return { title, content };
+  }
+
+  /**
+   * 构建波动预警消息
+   * 格式：[现货/Alpha] {币种名称} 异动：{XX}分钟内 {上涨/下跌} {XXX}%
+   * 示例：[现货] BTCUSDT 异动：5 分钟内 上涨 3.5%
+   */
+  buildVolatilityAlert(alert) {
+    const sourceType = alert.sourceType || '现货';
+    const direction = alert.direction === 'up' ? '上涨' : '下跌';
+    
+    const title = '重大波动提醒';
+    const content = `[${sourceType}] ${alert.symbol} 异动：${alert.windowMinutes}分钟内 ${direction} ${alert.changePercent.toFixed(2)}%`;
+    
+    return { title, content };
+  }
+
+  /**
+   * 格式化价格（极致极简格式）
+   * 去除千分位逗号，保持简洁
+   */
+  formatPrice(price) {
+    if (typeof price !== 'number') {
+      price = parseFloat(price);
+    }
+    
+    // 小于 1 的价格显示更多小数位（去除末尾零）
+    if (price < 1) {
+      return parseFloat(price.toFixed(6)).toString();
+    } else if (price < 100) {
+      return parseFloat(price.toFixed(2)).toString();
+    } else {
+      // 整数价格不显示小数位，避免千分位逗号
+      return Math.round(price).toString();
+    }
+  }
+}
+
+module.exports = Templater;

@@ -1,0 +1,303 @@
+/**
+ * monitors.js - 监控模块（价格目标线 + 波动侦测线）
+ * 
+ * 包含：
+ * - TargetMonitor: 价格目标线监控
+ * - VolatilityMonitor: 波动侦测线监控
+ * - fetchAlphaPrice: 获取 Alpha 代币价格
+ */
+
+/**
+ * 获取 Alpha 代币价格
+ * @param {string} alphaId - Alpha ID（如 ALPHA_804）
+ * @returns {Promise<string>} - 价格
+ */
+async function fetchAlphaPrice(alphaId) {
+  try {
+    const url = `https://www.binance.com/bapi/defi/v1/public/alpha-trade/ticker?symbol=${alphaId}USDT`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    // 注意：数据在 data.data 里
+    if (data.data && data.data.lastPrice) {
+      return data.data.lastPrice;
+    }
+    
+    throw new Error('Alpha API 返回数据格式异常');
+  } catch (err) {
+    console.error(`[Alpha] 获取 ${alphaId} 价格失败:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * 获取 Alpha 交易所信息
+ * @returns {Promise<object>} - 交易所信息
+ */
+async function fetchAlphaExchangeInfo() {
+  try {
+    const url = 'https://www.binance.com/bapi/defi/v1/public/alpha-trade/get-exchange-info';
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    return data.data || {};
+  } catch (err) {
+    console.error('[Alpha] 获取交易所信息失败:', err.message);
+    return {};
+  }
+}
+
+/**
+ * 获取 Alpha K 线数据
+ * @param {string} alphaId - Alpha ID（如 ALPHA_804）
+ * @param {string} interval - K 线间隔（1m, 5m, 15m, 1h, 4h, 1d）
+ * @param {number} limit - 返回数量（默认 100）
+ * @returns {Promise<Array>} - K 线数据
+ */
+async function fetchAlphaKlines(alphaId, interval = '1m', limit = 100) {
+  try {
+    const url = `https://www.binance.com/bapi/defi/v1/public/alpha-trade/klines?symbol=${alphaId}USDT&interval=${interval}&limit=${limit}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    return data.data || [];
+  } catch (err) {
+    console.error(`[Alpha] 获取 ${alphaId} K 线失败:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * 价格目标线监控器
+ * 
+ * 职责：
+ * - 监控币种价格是否达到用户设定的目标价位
+ * - 触发条件：价格 >= 目标价 (做多) 或 价格 <= 目标价 (做空)
+ * - 状态流转：WAITING → TRIGGERED → COMPLETED
+ * - 一次性逻辑：触发后自动标记为"已完成"，不再重复告警
+ */
+class TargetMonitor {
+  constructor(storage, alertService, configManager) {
+    this.storage = storage;
+    this.alertService = alertService;
+    this.configManager = configManager;
+  }
+
+  /**
+   * 检查所有价格目标
+   */
+  check(symbol, currentPrice, targets) {
+    const triggered = [];
+    
+    if (!Array.isArray(targets)) {
+      return triggered;
+    }
+    
+    for (const target of targets) {
+      // 跳过禁用的目标
+      if (!target.enabled) {
+        continue;
+      }
+      
+      // 跳过已完成的目标
+      if (target.status === 'completed') {
+        continue;
+      }
+      
+      // 检查是否触发
+      const isTriggered = this._checkTarget(target, currentPrice);
+      
+      if (isTriggered) {
+        triggered.push({
+          ...target,
+          currentPrice
+        });
+      }
+    }
+    
+    return triggered;
+  }
+
+  /**
+   * 检查单个目标
+   */
+  _checkTarget(target, currentPrice) {
+    if (target.type === 'above') {
+      return currentPrice >= target.price;
+    } else if (target.type === 'below') {
+      return currentPrice <= target.price;
+    }
+    return false;
+  }
+
+  /**
+   * 处理触发的目标
+   */
+  async handleTrigger(symbol, target, currentPrice) {
+    const targetKey = `${symbol}_target_${target.id}`;
+    
+    // 检查静默期
+    if (!this.storage.canAlert(targetKey)) {
+      console.log(`[Target] ${symbol} 目标 ${target.id} 在静默期，跳过`);
+      return false;
+    }
+    
+    // 更新状态（storage）
+    this.storage.updateTargetState(
+      target.id,
+      symbol,
+      target.type,
+      target.price,
+      'triggered'
+    );
+    
+    // 更新状态（configManager - 用于前端显示）
+    // 触发后自动关闭开关（一次性报警）
+    if (this.configManager) {
+      this.configManager.updateTargetStatus(symbol, target.id, 'triggered', currentPrice, false);
+      await this.configManager.save();
+    }
+    
+    // 发送告警
+    const sent = await this.alertService.sendTargetAlert(
+      symbol,
+      target.type,
+      target.price,
+      currentPrice
+    );
+    
+    if (sent) {
+      // 设置静默期
+      this.storage.setAlertSilence(targetKey);
+      
+      console.log(`[Target] ${symbol} 触发报警，已自动关闭监控`);
+      return true;
+    }
+    
+    return false;
+  }
+}
+
+/**
+ * 波动侦测线监控器
+ * 
+ * 职责：
+ * - 监控币种在指定时间窗口内的价格波动幅度
+ * - 触发条件：(最高价 - 最低价) / 最低价 >= 阈值%
+ * - 检测窗口：滑动窗口，每 1 分钟检查过去 N 分钟的数据
+ * - 持续性监控：不会自动完成，持续检测
+ * - 阶梯阈值：首次触发后，后续触发需要更高阈值
+ */
+class VolatilityMonitor {
+  constructor(storage, alertService) {
+    this.storage = storage;
+    this.alertService = alertService;
+  }
+
+  /**
+   * 检查波动
+   */
+  check(symbol, config) {
+    if (!config || !config.enabled) {
+      return null;
+    }
+    
+    const { windowMinutes, thresholdPercent, stepThreshold } = config;
+    
+    // 获取滑动窗口统计
+    const stats = this.storage.getWindowStats(symbol, windowMinutes);
+    
+    if (!stats || stats.min === Infinity || stats.max === -Infinity) {
+      return null; // 数据不足
+    }
+    
+    // 计算波动率
+    const volatility = ((stats.max - stats.min) / stats.min) * 100;
+    
+    // 获取当前阈值（考虑阶梯累加）
+    let currentThreshold = thresholdPercent;
+    const storedThreshold = this.storage.getStepThreshold(symbol);
+    if (storedThreshold !== null) {
+      currentThreshold = storedThreshold;
+    }
+    
+    // 检查是否触发
+    const isTriggered = volatility >= currentThreshold;
+    
+    return {
+      symbol,
+      volatility,
+      min: stats.min,
+      max: stats.max,
+      threshold: currentThreshold,
+      baseThreshold: thresholdPercent,
+      stepThreshold,
+      isTriggered,
+      windowMinutes
+    };
+  }
+
+  /**
+   * 处理触发的波动
+   */
+  async handleTrigger(result) {
+    const { symbol, volatility, min, max, threshold } = result;
+    const volatilityKey = `${symbol}_volatility`;
+    
+    // 检查静默期
+    if (!this.storage.canAlert(volatilityKey)) {
+      console.log(`[Volatility] ${symbol} 在静默期，跳过`);
+      return false;
+    }
+    
+    // 发送告警
+    const sent = await this.alertService.sendVolatilityAlert(
+      symbol,
+      volatility,
+      min,
+      max,
+      threshold
+    );
+    
+    if (sent) {
+      // 设置静默期
+      this.storage.setAlertSilence(volatilityKey);
+      
+      // 更新状态并累加阈值
+      this.storage.triggerVolatility(symbol);
+      
+      console.log(`[Volatility] ${symbol} 波动 ${volatility.toFixed(2)}% 已触发，阈值累加`);
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * 初始化波动监控状态
+   */
+  init(symbol, config) {
+    if (!config || !config.enabled) {
+      return;
+    }
+    
+    const { thresholdPercent, stepThreshold } = config;
+    
+    this.storage.updateVolatilityState(
+      symbol,
+      true,
+      thresholdPercent,
+      stepThreshold
+    );
+    
+    console.log(`[Volatility] ${symbol} 监控已初始化，阈值 ${thresholdPercent}%`);
+  }
+}
+
+module.exports = {
+  TargetMonitor,
+  VolatilityMonitor,
+  fetchAlphaPrice,
+  fetchAlphaExchangeInfo,
+  fetchAlphaKlines
+};
