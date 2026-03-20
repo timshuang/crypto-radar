@@ -264,7 +264,7 @@ class AlertService extends EventEmitter {
    */
   async sendVolatilityAlert(symbol, volatility, min, max, threshold) {
     const title = '🌊 波动侦测';
-    const body = `${symbol} 波动 ${volatility.toFixed(2)}% (阈值 ${threshold.toFixed(1)}%)\n区间：$${min.toLocaleString()} - $${max.toLocaleString()}`;
+    const body = `${symbol} 波动 ${(volatility || 0).toFixed(2)}% (阈值 ${(threshold || 0).toFixed(1)}%)\n区间：$${min?.toLocaleString() || 'N/A'} - $${max?.toLocaleString() || 'N/A'}`;
     
     const barkSent = await this.send({
       title,
@@ -274,13 +274,26 @@ class AlertService extends EventEmitter {
       type: 'volatility'
     });
     
+    // 获取当前价格，判断方向（当前价 vs 窗口起始价）
+    const latestPrice = this.storage?.getLatestPrice(symbol);
+    const currentPrice = latestPrice?.price || max;
+    
+    // 获取窗口起始价格（第一个价格）
+    const windowStats = this.storage?.getWindowStats(
+      this.configManager?.config?.symbols?.find(s => s.symbol === symbol)?.volatility?.windowMinutes || 5
+    );
+    const startPrice = windowStats?.startPrice || min;
+    
+    // 判断方向：当前价 > 起始价 = 上涨，否则 = 下跌
+    const direction = currentPrice >= startPrice ? 'up' : 'down';
+    
     // 发送外部通知（新通知服务）
     const alert = {
       symbol,
       source: 'volatility',
-      windowMinutes: this.configManager?.config?.symbols?.find(s => s.symbol === symbol)?.volatility?.windowMinutes || 5,
+      windowMinutes: this.configManager?.config?.volatilityModule?.windowMinutes || 5,  // 从全局配置读取
       changePercent: volatility,
-      direction: volatility > 0 ? 'up' : 'down',
+      direction: direction,
       sourceType: this._getSourceType(symbol)
     };
     await this.sendExternalNotification(alert);

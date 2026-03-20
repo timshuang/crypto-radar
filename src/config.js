@@ -107,9 +107,7 @@ class ConfigManager extends EventEmitter {
         if (!Array.isArray(symbol.targets)) {
           errors.push(`symbols[${index}] targets 必须是数组`);
         }
-        if (!symbol.volatility || typeof symbol.volatility !== 'object') {
-          errors.push(`symbols[${index}] 缺少 volatility 配置`);
-        }
+        // 波动侦测已独立为全局 volatilityModule 配置，不再需要 per-symbol 的 volatility 配置
       });
     }
     
@@ -156,20 +154,7 @@ class ConfigManager extends EventEmitter {
         if (symbol.enabled === undefined) {
           symbol.enabled = true;
         }
-        if (symbol.volatility) {
-          if (symbol.volatility.enabled === undefined) {
-            symbol.volatility.enabled = true;
-          }
-          if (!symbol.volatility.windowMinutes) {
-            symbol.volatility.windowMinutes = 60;
-          }
-          if (!symbol.volatility.thresholdPercent) {
-            symbol.volatility.thresholdPercent = 2.0;
-          }
-          if (!symbol.volatility.stepThreshold) {
-            symbol.volatility.stepThreshold = 0.5;
-          }
-        }
+        // 波动侦测已独立为全局 volatilityModule 配置，不再需要 per-symbol 的 volatility 默认值
       });
     }
   }

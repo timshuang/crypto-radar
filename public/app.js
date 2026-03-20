@@ -990,7 +990,12 @@ document.querySelectorAll('.nav-links a').forEach(link => {
   });
 });
 
-// ==================== 波动侦测功能 ====================
+// ==================== 波动侦测功能（新版） ====================
+
+// 前端状态（关闭时保持当前值）
+let volatilityWindowValue = 5;
+let volatilityThresholdValue = 20;
+let volatilityScopeValue = 'global';
 
 // 初始化波动设置（只绑定事件，不设置默认值）
 function initVolatilitySettings() {
@@ -999,172 +1004,186 @@ function initVolatilitySettings() {
   const thresholdSelect = document.getElementById('volatilityThreshold');
   const thresholdInput = document.getElementById('volatilityThresholdCustom');
   
-  // 监听下拉框变化
+  // 监听下拉框变化（只更新前端值，不提交）
   windowSelect.addEventListener('change', (e) => {
     if (e.target.value === 'custom') {
       windowInput.disabled = false;
-      windowInput.value = '';
+      // 不要清空输入框，保持当前值
+      if (!windowInput.value) {
+        windowInput.value = volatilityWindowValue || 5;
+      }
       windowInput.focus();
+      // 更新变量
+      volatilityWindowValue = parseInt(windowInput.value) || 5;
     } else {
       windowInput.disabled = true;
       windowInput.value = e.target.value;
-      // 调用 API 设置
-      setVolatilityWindow(parseInt(e.target.value));
+      volatilityWindowValue = parseInt(e.target.value);
     }
   });
   
   thresholdSelect.addEventListener('change', (e) => {
     if (e.target.value === 'custom') {
       thresholdInput.disabled = false;
-      thresholdInput.value = '';
+      // 不要清空输入框，保持当前值（如果没有值，用默认值）
+      if (!thresholdInput.value) {
+        thresholdInput.value = volatilityThresholdValue || 20;
+      }
       thresholdInput.focus();
+      // 更新变量
+      volatilityThresholdValue = parseFloat(thresholdInput.value) || 20;
     } else {
       thresholdInput.disabled = true;
       thresholdInput.value = e.target.value;
-      // 调用 API 设置
-      setVolatilityThreshold(parseInt(e.target.value));
+      volatilityThresholdValue = parseInt(e.target.value);
     }
+  });
+  
+  // 监听自定义输入框变化（只更新前端值，不提交）
+  windowInput.addEventListener('change', () => {
+    const value = parseInt(windowInput.value);
+    if (value && value >= 1) {
+      volatilityWindowValue = value;
+    }
+  });
+  
+  thresholdInput.addEventListener('change', () => {
+    const value = parseFloat(thresholdInput.value);
+    if (value !== undefined && value !== null && value >= 0.1) {
+      volatilityThresholdValue = value;
+    }
+  });
+  
+  // 监听范围变化（只更新前端值，不提交）
+  const scopeRadios = document.querySelectorAll('input[name="volatilityScope"]');
+  scopeRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      volatilityScopeValue = radio.value;
+    });
   });
 }
 
-// 更新波动侦测范围
-async function updateVolatilityScope() {
-  const scope = document.querySelector('input[name="volatilityScope"]:checked').value;
-  try {
-    await api('/volatility/scope', {
-      method: 'PUT',
-      body: JSON.stringify({ scope })
-    });
-    showToast(`监控范围已更新：${scope === 'global' ? '全局监控' : '仅已添加币种'}`);
-  } catch (err) {
-    console.error('更新波动范围失败:', err);
-  }
-}
-
-// 设置波动时间窗口
-async function setVolatilityWindow(minutes) {
-  try {
-    await api('/volatility/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ windowMinutes: minutes })
-    });
-    showToast(`时间窗口已设置为 ${minutes} 分钟`);
-  } catch (err) {
-    console.error('设置时间窗口失败:', err);
-  }
-}
-
-// 设置自定义时间窗口（输入框变化时调用）
-async function setVolatilityWindowCustom() {
-  const value = parseInt(document.getElementById('volatilityWindowCustom').value);
-  if (!value || value < 1) return;
+// 切换波动侦测开关（新版：互斥开关，只在开启时提交参数）
+async function onVolatilityToggle(checked) {
+  const toggle = document.getElementById('volatilityToggle');
   
   try {
-    await api('/volatility/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ windowMinutes: value })
-    });
-    showToast(`时间窗口已设置为 ${value} 分钟`);
-  } catch (err) {
-    console.error('设置自定义时间窗口失败:', err);
-  }
-}
-
-// 设置波动阈值
-async function setVolatilityThreshold(percent) {
-  try {
-    await api('/volatility/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ thresholdPercent: percent })
-    });
-    showToast(`涨跌幅阈值已设置为 ${percent}%`);
-  } catch (err) {
-    console.error('设置阈值失败:', err);
-  }
-}
-
-// 设置自定义阈值（输入框变化时调用）
-async function setVolatilityThresholdCustom() {
-  const value = parseFloat(document.getElementById('volatilityThresholdCustom').value);
-  if (!value || value < 1) return;
-  
-  try {
-    await api('/volatility/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ thresholdPercent: value })
-    });
-    showToast(`涨跌幅阈值已设置为 ${value}%`);
-  } catch (err) {
-    console.error('设置自定义阈值失败:', err);
-  }
-}
-
-// 切换波动侦测
-async function toggleVolatility(enabled) {
-  try {
-    await api('/volatility/toggle', {
-      method: 'POST',
-      body: JSON.stringify({ enabled })
-    });
-    document.getElementById('volatilityStatus').textContent = enabled ? '启用' : '禁用';
-    showToast(`波动侦测已${enabled ? '启用' : '禁用'}`);
+    if (checked) {
+      // 开启：直接读取输入框的当前值（输入框是唯一的权威数据源）
+      const windowInput = document.getElementById('volatilityWindowCustom');
+      const thresholdInput = document.getElementById('volatilityThresholdCustom');
+      const scopeRadio = document.querySelector('input[name="volatilityScope"]:checked');
+      
+      // 调试日志：打印输入框的实际值
+      console.log('[Volatility] 提交参数 - windowInput.value:', windowInput.value, 'thresholdInput.value:', thresholdInput.value);
+      
+      // 处理区域设置问题（某些地区用逗号表示小数点，如 "0,54"）
+      const windowValue = windowInput.value.replace(',', '.');
+      const thresholdValue = thresholdInput.value.replace(',', '.');
+      
+      console.log('[Volatility] 处理后 - windowValue:', windowValue, 'thresholdValue:', thresholdValue);
+      console.log('[Volatility] parseFloat 结果 - window:', parseFloat(windowValue), 'threshold:', parseFloat(thresholdValue));
+      
+      const params = {
+        windowMinutes: parseInt(windowValue) || 5,
+        thresholdPercent: parseFloat(thresholdValue) || 20,
+        scope: scopeRadio ? scopeRadio.value : 'global'
+      };
+      
+      console.log('[Volatility] 最终提交的 params:', params);
+      
+      const response = await api('/volatility/start', {
+        method: 'PUT',
+        body: JSON.stringify(params)
+      });
+      
+      if (response.success) {
+        showToast('波动侦测已开启', 'success');
+      } else {
+        toggle.checked = false;
+        showToast(response.message || '开启失败', 'error');
+      }
+    } else {
+      // 关闭：删除参数，前端保持当前值
+      const response = await api('/volatility/toggle', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: false })
+      });
+      
+      if (response.success) {
+        showToast('波动侦测已关闭', 'success');
+        // 前端保持当前值，不重置
+      } else {
+        toggle.checked = true;
+        showToast(response.message || '关闭失败', 'error');
+      }
+    }
   } catch (err) {
     console.error('切换波动侦测失败:', err);
+    toggle.checked = !checked;
+    showToast('操作失败：' + err.message, 'error');
   }
 }
 
-// 加载波动侦测设置
+// 加载波动侦测设置（新版）
 async function loadVolatilitySettings() {
   try {
-    const result = await api('/volatility/settings');
-    const settings = result.data || {};
+    const result = await api('/volatility/config');
+    const config = result.data || {};
     
     // 设置范围
-    const scope = settings.scope || 'global';
-    const scopeRadio = document.querySelector(`input[name="volatilityScope"][value="${scope}"]`);
+    volatilityScopeValue = config.scope || 'global';
+    const scopeRadio = document.querySelector(`input[name="volatilityScope"][value="${volatilityScopeValue}"]`);
     if (scopeRadio) {
       scopeRadio.checked = true;
     }
     
-    // 设置时间窗口（强制默认值 5 分钟）
+    // 设置时间窗口
+    volatilityWindowValue = config.windowMinutes || 5;
     const windowSelect = document.getElementById('volatilityWindow');
     const windowCustomInput = document.getElementById('volatilityWindowCustom');
-    const windowValue = settings.windowMinutes !== undefined ? settings.windowMinutes : 5;
     const presetValues = ['3', '5'];
-    if (presetValues.includes(String(windowValue))) {
-      windowSelect.value = String(windowValue);
-      windowCustomInput.value = windowValue;
+    if (presetValues.includes(String(volatilityWindowValue))) {
+      windowSelect.value = String(volatilityWindowValue);
+      windowCustomInput.value = volatilityWindowValue;
       windowCustomInput.disabled = true;
     } else {
       windowSelect.value = 'custom';
-      windowCustomInput.value = windowValue;
+      windowCustomInput.value = volatilityWindowValue;
       windowCustomInput.disabled = false;
     }
     
-    // 设置阈值（强制默认值 20%）
+    // 设置阈值
+    volatilityThresholdValue = config.thresholdPercent || 20;
     const thresholdSelect = document.getElementById('volatilityThreshold');
     const thresholdCustomInput = document.getElementById('volatilityThresholdCustom');
-    const thresholdValue = settings.thresholdPercent !== undefined ? settings.thresholdPercent : 20;
     const thresholdPresetValues = ['10', '20', '30'];
-    if (thresholdPresetValues.includes(String(thresholdValue))) {
-      thresholdSelect.value = String(thresholdValue);
-      thresholdCustomInput.value = thresholdValue;
+    if (thresholdPresetValues.includes(String(volatilityThresholdValue))) {
+      thresholdSelect.value = String(volatilityThresholdValue);
+      thresholdCustomInput.value = volatilityThresholdValue;
       thresholdCustomInput.disabled = true;
     } else {
       thresholdSelect.value = 'custom';
-      thresholdCustomInput.value = thresholdValue;
+      thresholdCustomInput.value = volatilityThresholdValue;
       thresholdCustomInput.disabled = false;
+      // 关键：直接更新变量，不依赖 change 事件
+      volatilityThresholdValue = parseFloat(thresholdCustomInput.value) || volatilityThresholdValue;
     }
     
     // 设置开关状态
     const toggle = document.getElementById('volatilityToggle');
-    const statusText = document.getElementById('volatilityStatus');
-    if (toggle && statusText) {
-      toggle.checked = settings.enabled !== false;
-      statusText.textContent = settings.enabled !== false ? '启用' : '禁用';
+    if (toggle) {
+      toggle.checked = config.enabled === true;
+      // 绑定新的事件处理
+      toggle.removeEventListener('change', toggleVolatility);
+      toggle.addEventListener('change', (e) => onVolatilityToggle(e.target.checked));
     }
   } catch (err) {
     console.error('加载波动设置失败:', err);
+    // 使用默认值
+    volatilityWindowValue = 5;
+    volatilityThresholdValue = 20;
+    volatilityScopeValue = 'global';
   }
 }
 
@@ -2147,10 +2166,10 @@ async function init() {
   // 初始化弹窗内搜索
   initAddSymbolSearch();
   
-  // 初始化波动设置
+  // 初始化波动设置（绑定事件）
   initVolatilitySettings();
   
-  // 加载波动侦测设置（从服务器）
+  // 加载波动侦测设置（从服务器，包含开关事件绑定）
   loadVolatilitySettings();
   
   // 加载 Bark 全局配置

@@ -1,31 +1,31 @@
 /**
- * checker-engine.js - 检查引擎模块
+ * checker-engine.js - 价格监控引擎模块
  * 
  * 职责：
  * - 每分钟执行一次全量检查
- * - 遍历所有 active 配置
+ * - 遍历所有启用的币种配置
  * - 执行 TargetMonitor 检查
- * - 执行 VolatilityMonitor 检查
  * - 收集触发的告警
  * - 调用 AlertService 发送通知
  * - 更新告警状态（冷却时间、完成状态）
  * - 持久化状态到存储
+ * 
+ * 注意：波动侦测逻辑已移至 VolatilityEngine（独立模块）
  */
 
 class CheckerEngine {
-  constructor(configManager, storage, alertService, targetMonitor, volatilityMonitor) {
+  constructor(configManager, storage, alertService, targetMonitor) {
     this.configManager = configManager;
     this.storage = storage;
     this.alertService = alertService;
     this.targetMonitor = targetMonitor;
-    this.volatilityMonitor = volatilityMonitor;
     
     this.checkInterval = null;
     this.isRunning = false;
     this.lastCheckTime = null;
     this.checkCount = 0;
   }
-
+  
   /**
    * 启动检查引擎
    */
@@ -76,20 +76,19 @@ class CheckerEngine {
     try {
       console.log('[Checker] 开始检查...');
       
-      // 获取所有启用的币种
-      const symbols = this.configManager.getEnabledSymbols();
+      // 价格目标检查：只检查启用的币种
+      const enabledSymbols = this.configManager.getEnabledSymbols();
       
-      if (symbols.length === 0) {
+      if (enabledSymbols.length === 0) {
         console.log('[Checker] 没有启用的币种，跳过');
         return;
       }
       
       let targetTriggers = 0;
-      let volatilityTriggers = 0;
       
-      // 遍历所有币种
-      for (const symbolConfig of symbols) {
-        const { symbol, source, targets, volatility } = symbolConfig;
+      // 检查价格目标
+      for (const symbolConfig of enabledSymbols) {
+        const { symbol, source, targets } = symbolConfig;
         
         // 获取最新价格
         const latestPrice = this.storage.getLatestPrice(symbol);
@@ -108,16 +107,6 @@ class CheckerEngine {
             targetTriggers++;
           }
         }
-        
-        // 检查波动
-        const volatilityResult = this.volatilityMonitor.check(symbol, volatility);
-        
-        if (volatilityResult && volatilityResult.isTriggered) {
-          const success = await this.volatilityMonitor.handleTrigger(volatilityResult);
-          if (success) {
-            volatilityTriggers++;
-          }
-        }
       }
       
       // 处理失败队列
@@ -128,8 +117,7 @@ class CheckerEngine {
       this.checkCount++;
       
       const duration = Date.now() - startTime;
-      console.log(`[Checker] 检查完成，耗时 ${duration}ms, ` +
-        `目标触发：${targetTriggers}, 波动触发：${volatilityTriggers}`);
+      console.log(`[Checker] 检查完成，耗时 ${duration}ms, 目标触发：${targetTriggers}`);
       
     } catch (err) {
       console.error(`[Checker] 检查失败：${err.message}`);

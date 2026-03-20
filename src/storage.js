@@ -470,6 +470,43 @@ class StorageManager {
   }
 
   /**
+   * 获取告警状态（用于波动侦测）
+   */
+  getAlertState() {
+    // 返回完整的告警状态对象
+    return {
+      volatility: this.alertStateStore.get('volatility', {})
+    };
+  }
+
+  /**
+   * 更新波动告警状态（设置静默期）
+   */
+  setVolatilitySilence(symbol, silenceUntil) {
+    const volatility = this.alertStateStore.get('volatility', {});
+    
+    if (!volatility[symbol]) {
+      volatility[symbol] = {};
+    }
+    
+    volatility[symbol].silenceUntil = silenceUntil;
+    volatility[symbol].lastAlertAt = Date.now();
+    
+    this.alertStateStore.set('volatility', volatility);
+    this.alertStateStore.batchUpdate({ volatility, lastUpdate: new Date().toISOString() });
+  }
+
+  /**
+   * 保存告警状态（用于波动侦测）
+   */
+  async saveAlertState(alertState) {
+    if (alertState.volatility) {
+      this.alertStateStore.set('volatility', alertState.volatility);
+      this.alertStateStore.batchUpdate({ volatility: alertState.volatility, lastUpdate: new Date().toISOString() });
+    }
+  }
+
+  /**
    * 更新波动状态
    */
   updateVolatilityState(symbol, enabled, threshold, stepIncrement) {

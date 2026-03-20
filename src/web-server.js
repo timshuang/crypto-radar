@@ -452,28 +452,40 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/system/toggle' && method === 'POST') {
       result = this._toggleSystem(body);
     }
-    // GET /api/volatility - 波动配置
+    // GET /api/volatility/config - 获取波动模块配置（新版）
+    else if (pathname === '/api/volatility/config' && method === 'GET') {
+      result = this._getVolatilityConfig();
+    }
+    // PUT /api/volatility/start - 开启波动侦测（新版）
+    else if (pathname === '/api/volatility/start' && method === 'PUT') {
+      result = await this._startVolatility(body);
+    }
+    // PUT /api/volatility/toggle - 切换波动侦测开关（新版）
+    else if (pathname === '/api/volatility/toggle' && method === 'PUT') {
+      result = await this._toggleVolatilityNew(body);
+    }
+    // GET /api/volatility - 波动配置（旧版，保留兼容）
     else if (pathname === '/api/volatility' && method === 'GET') {
       result = this._getVolatility(query.symbol);
     }
-    // PUT /api/volatility/:symbol - 更新波动配置
+    // GET /api/volatility/settings - 获取波动设置（旧版，保留兼容）
+    else if (pathname === '/api/volatility/settings' && method === 'GET') {
+      result = this._getVolatilitySettings();
+    }
+    // PUT /api/volatility/settings - 更新波动设置（旧版，保留兼容）
+    else if (pathname === '/api/volatility/settings' && method === 'PUT') {
+      result = await this._updateVolatilitySettings(body);
+    }
+    // PUT /api/volatility/scope - 更新波动监控范围（旧版，保留兼容）
+    else if (pathname === '/api/volatility/scope' && method === 'PUT') {
+      result = await this._updateVolatilityScope(body);
+    }
+    // PUT /api/volatility/:symbol - 更新波动配置（旧版，保留兼容）
     else if (pathname.match(/^\/api\/volatility\/[^/]+$/) && method === 'PUT') {
       const symbol = pathname.split('/')[3];
       result = await this._updateVolatility(symbol, body);
     }
-    // GET /api/volatility/settings - 获取波动设置
-    else if (pathname === '/api/volatility/settings' && method === 'GET') {
-      result = this._getVolatilitySettings();
-    }
-    // PUT /api/volatility/settings - 更新波动设置
-    else if (pathname === '/api/volatility/settings' && method === 'PUT') {
-      result = await this._updateVolatilitySettings(body);
-    }
-    // PUT /api/volatility/scope - 更新波动监控范围
-    else if (pathname === '/api/volatility/scope' && method === 'PUT') {
-      result = await this._updateVolatilityScope(body);
-    }
-    // POST /api/volatility/toggle - 切换波动侦测
+    // POST /api/volatility/toggle - 切换波动侦测（旧版，保留兼容）
     else if (pathname === '/api/volatility/toggle' && method === 'POST') {
       result = this._toggleVolatility(body);
     }
@@ -1172,7 +1184,7 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * PUT /api/volatility/settings - 更新波动设置
+   * PUT /api/volatility/settings - 更新波动设置（应用到所有币种 + 全局配置）
    */
   async _updateVolatilitySettings(data) {
     const config = this.configManager?.config;
@@ -1180,16 +1192,40 @@ class WebServer extends EventEmitter {
       return { success: false, error: '配置未加载' };
     }
 
+    // 更新全局配置（用于 global 模式）
     if (data.windowMinutes !== undefined) {
       config.volatilityWindowMinutes = parseInt(data.windowMinutes);
     }
     if (data.thresholdPercent !== undefined) {
       config.volatilityThresholdPercent = parseFloat(data.thresholdPercent);
     }
+    if (data.stepThreshold !== undefined) {
+      config.volatilityStepThreshold = parseFloat(data.stepThreshold);
+    }
+
+    // 更新所有币种的波动配置（用于 added 模式）
+    if (config.symbols && Array.isArray(config.symbols)) {
+      for (const symbol of config.symbols) {
+        if (!symbol.volatility) {
+          symbol.volatility = {};
+        }
+        
+        if (data.windowMinutes !== undefined) {
+          symbol.volatility.windowMinutes = parseInt(data.windowMinutes);
+        }
+        if (data.thresholdPercent !== undefined) {
+          symbol.volatility.thresholdPercent = parseFloat(data.thresholdPercent);
+        }
+        if (data.stepThreshold !== undefined) {
+          symbol.volatility.stepThreshold = parseFloat(data.stepThreshold);
+        }
+      }
+    }
 
     await this.configManager.save();
+    console.log(`[WebServer] 波动设置已更新：window=${config.volatilityWindowMinutes}min, threshold=${config.volatilityThresholdPercent}%`);
 
-    return { success: true, data: { windowMinutes: config.volatilityWindowMinutes, thresholdPercent: config.volatilityThresholdPercent } };
+    return { success: true, message: '波动设置已更新' };
   }
 
   /**
@@ -1211,7 +1247,7 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * POST /api/volatility/toggle - 切换波动侦测
+   * POST /api/volatility/toggle - 切换波动侦测（旧版，保留兼容）
    */
   _toggleVolatility(data) {
     const config = this.configManager?.config;
@@ -1224,6 +1260,123 @@ class WebServer extends EventEmitter {
     this.configManager.save();
 
     return { success: true, data: { enabled } };
+  }
+
+  /**
+   * GET /api/volatility/config - 获取波动模块配置（新版）
+   */
+  _getVolatilityConfig() {
+    const config = this.configManager?.config;
+    if (!config) {
+      return { success: false, error: '配置未加载' };
+    }
+
+    const volatilityModule = config.volatilityModule || {
+      enabled: false,
+      scope: 'global',
+      windowMinutes: 5,
+      thresholdPercent: 20,
+      barkEnabled: false,
+      barkMode: 'normal'
+    };
+
+    return {
+      success: true,
+      data: volatilityModule
+    };
+  }
+
+  /**
+   * PUT /api/volatility/start - 开启波动侦测（新版）
+   * 提交当前页面参数到 config
+   */
+  async _startVolatility(data) {
+    const config = this.configManager?.config;
+    if (!config) {
+      return { success: false, error: '配置未加载' };
+    }
+
+    // 初始化 volatilityModule（如果不存在）
+    if (!config.volatilityModule) {
+      config.volatilityModule = {};
+    }
+
+    // 更新参数
+    config.volatilityModule.enabled = true;
+    config.volatilityModule.scope = data?.scope || 'global';
+    config.volatilityModule.windowMinutes = parseInt(data?.windowMinutes) || 5;
+    
+    // 调试日志：打印收到的数据
+    console.log('[WebServer] _startVolatility - 收到的 data:', JSON.stringify(data));
+    console.log('[WebServer] _startVolatility - data.thresholdPercent:', data?.thresholdPercent, 'typeof:', typeof data?.thresholdPercent);
+    console.log('[WebServer] _startVolatility - parseFloat 结果:', parseFloat(data?.thresholdPercent));
+    
+    config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;  // 支持小数
+    config.volatilityModule.barkEnabled = config.bark?.volatilityEnabled || false;
+    config.volatilityModule.barkMode = config.bark?.volatilityMode || 'normal';
+
+    await this.configManager.save();
+
+    console.log('[WebServer] 保存后的 config.volatilityModule:', config.volatilityModule);
+
+    console.log(`[WebServer] 波动侦测已开启：scope=${config.volatilityModule.scope}, window=${config.volatilityModule.windowMinutes}min, threshold=${config.volatilityModule.thresholdPercent}%`);
+
+    // 直接启动波动引擎（如果已初始化）
+    console.log('[WebServer] this.app:', this.app ? '存在' : 'undefined');
+    console.log('[WebServer] this.app.volatilityEngine:', this.app?.volatilityEngine ? '存在' : 'undefined');
+    
+    if (this.app?.volatilityEngine) {
+      console.log('[WebServer] 启动波动侦测引擎...');
+      this.app.volatilityEngine.start();
+    } else {
+      console.warn('[WebServer] 波动侦测引擎未初始化，跳过启动');
+    }
+
+    return {
+      success: true,
+      message: '波动侦测已开启',
+      data: config.volatilityModule
+    };
+  }
+
+  /**
+   * PUT /api/volatility/toggle - 切换波动侦测开关（新版）
+   * 关闭时删除 config 参数，前端保持当前值
+   */
+  async _toggleVolatilityNew(data) {
+    const config = this.configManager?.config;
+    if (!config) {
+      return { success: false, error: '配置未加载' };
+    }
+
+    const enabled = data?.enabled !== undefined ? data.enabled : false;
+
+    if (!config.volatilityModule) {
+      config.volatilityModule = {};
+    }
+
+    config.volatilityModule.enabled = enabled;
+
+    // 关闭时：删除参数（但保留 enabled 字段）
+    if (!enabled) {
+      delete config.volatilityModule.scope;
+      delete config.volatilityModule.windowMinutes;
+      delete config.volatilityModule.thresholdPercent;
+      console.log('[WebServer] 波动侦测已关闭，参数已删除');
+    }
+
+    await this.configManager.save();
+
+    // 通知应用停止/重启波动引擎
+    if (this.app && typeof this.app.restartVolatilityEngine === 'function') {
+      this.app.restartVolatilityEngine();
+    }
+
+    return {
+      success: true,
+      message: enabled ? '波动侦测已开启' : '波动侦测已关闭',
+      data: { enabled }
+    };
   }
 
   /**
@@ -1271,15 +1424,22 @@ class WebServer extends EventEmitter {
       return { success: false, error: '配置未加载' };
     }
     
+    // 从环境变量读取敏感配置（优先于 config.json）
+    const barkKey = process.env.BARK_KEY || config.bark?.deviceKey || '';
+    const barkSound = process.env.BARK_SOUND || config.bark?.sound || 'minuet';
+    const barkVolume = parseInt(process.env.BARK_VOLUME) || config.bark?.volume || 5;
+    const tgBotToken = process.env.TG_BOT_TOKEN || config.telegram?.botToken || '';
+    const tgChatId = process.env.TG_CHAT_ID || config.telegram?.chatId || '';
+    
     return {
       success: true,
       data: {
         bark: {
           enabled: config.bark?.enabled || false,
-          deviceKey: this._maskSecret(config.bark?.deviceKey || ''),
+          deviceKey: barkKey,  // 直接显示真实值，不脱敏
           serverUrl: config.bark?.serverUrl || 'https://api.day.app',
-          sound: config.bark?.sound || 'alarm.mp3',
-          volume: config.bark?.volume || 8,
+          sound: barkSound,
+          volume: barkVolume,
           group: config.bark?.group || 'crypto_radar',
           monitorEnabled: config.bark?.monitorEnabled !== false, // 默认 true
           monitorMode: config.bark?.monitorMode || 'normal',
@@ -1288,8 +1448,8 @@ class WebServer extends EventEmitter {
         },
         telegram: {
           enabled: config.telegram?.enabled || false,
-          botToken: this._maskSecret(config.telegram?.botToken || ''),
-          chatId: config.telegram?.chatId || ''
+          botToken: tgBotToken,  // 直接显示真实值，不脱敏
+          chatId: tgChatId
         },
         settings: {
           notificationTestMode: config.settings?.notificationTestMode || false
@@ -1304,6 +1464,57 @@ class WebServer extends EventEmitter {
   _maskSecret(secret) {
     if (!secret || secret.length < 8) return '***';
     return secret.substring(0, 4) + '...' + secret.substring(secret.length - 4);
+  }
+
+  /**
+   * 保存 .env 文件
+   */
+  async _saveEnvFile(updates) {
+    const fs = require('fs');
+    const path = require('path');
+    
+    const envPath = path.join(process.cwd(), '.env');
+    const envExamplePath = path.join(process.cwd(), '.env.example');
+    
+    // 读取现有 .env 文件（如果存在）
+    let envContent = '';
+    try {
+      envContent = fs.readFileSync(envPath, 'utf8');
+    } catch (err) {
+      // 文件不存在，从 .env.example 复制
+      try {
+        envContent = fs.readFileSync(envExamplePath, 'utf8');
+      } catch (err2) {
+        envContent = '# Crypto Radar Environment Variables\n';
+      }
+    }
+    
+    // 更新环境变量
+    const lines = envContent.split('\n');
+    const updated = {};
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const match = line.match(/^([A-Z_]+)=(.*)$/);
+      if (match) {
+        const key = match[1];
+        if (updates[key] !== undefined) {
+          lines[i] = `${key}=${updates[key]}`;
+          updated[key] = true;
+        }
+      }
+    }
+    
+    // 添加新的环境变量（如果不存在）
+    for (const [key, value] of Object.entries(updates)) {
+      if (!updated[key]) {
+        lines.push(`${key}=${value}`);
+      }
+    }
+    
+    // 写入 .env 文件
+    fs.writeFileSync(envPath, lines.join('\n'), 'utf8');
+    console.log('[WebServer] .env 文件已更新:', Object.keys(updates).join(', '));
   }
 
   /**
@@ -1325,15 +1536,31 @@ class WebServer extends EventEmitter {
       const config = this.configManager.config;
       console.log('[WebServer] config.telegram before update:', JSON.stringify(config.telegram, null, 2));
 
+      // 准备 .env 文件更新
+      const envUpdates = {};
+      
       // 只有当 data.bark 存在时才更新 bark
       if (data.bark !== undefined) {
         console.log('[WebServer] Updating bark config...');
+        
+        // 敏感字段更新到 .env
+        if (data.bark.deviceKey !== undefined) {
+          envUpdates.BARK_KEY = data.bark.deviceKey;
+        }
+        if (data.bark.sound !== undefined) {
+          envUpdates.BARK_SOUND = data.bark.sound;
+        }
+        if (data.bark.volume !== undefined) {
+          envUpdates.BARK_VOLUME = data.bark.volume.toString();
+        }
+        
+        // 非敏感字段保留在 config.json
         config.bark = {
           ...config.bark,
           enabled: data.bark?.enabled ?? false,
-          deviceKey: data.bark?.deviceKey ?? '',
-          sound: data.bark?.sound ?? 'alarm.mp3',
-          volume: data.bark?.volume ?? 8,
+          deviceKey: 'ENV_BARK_KEY',  // 占位符
+          sound: 'ENV_BARK_SOUND',    // 占位符
+          volume: parseInt(data.bark?.volume) || 5,
           serverUrl: data.bark?.serverUrl ?? 'https://api.day.app',
           group: data.bark?.group ?? 'crypto_radar'
         };
@@ -1342,11 +1569,21 @@ class WebServer extends EventEmitter {
       // 只有当 data.telegram 存在时才更新 telegram
       if (data.telegram !== undefined) {
         console.log('[WebServer] Updating telegram config...');
+        
+        // 敏感字段更新到 .env
+        if (data.telegram.botToken !== undefined) {
+          envUpdates.TG_BOT_TOKEN = data.telegram.botToken;
+        }
+        if (data.telegram.chatId !== undefined) {
+          envUpdates.TG_CHAT_ID = data.telegram.chatId;
+        }
+        
+        // 非敏感字段保留在 config.json
         config.telegram = {
           ...config.telegram,
           enabled: data.telegram?.enabled ?? false,
-          botToken: data.telegram?.botToken ?? '',
-          chatId: data.telegram?.chatId ?? ''
+          botToken: 'ENV_TG_BOT_TOKEN',  // 占位符
+          chatId: 'ENV_TG_CHAT_ID'       // 占位符
         };
       } else {
         console.log('[WebServer] NOT updating telegram config (data.telegram is undefined)');
@@ -1361,8 +1598,18 @@ class WebServer extends EventEmitter {
         };
       }
 
+      // 保存 config.json
       console.log('[WebServer] config.telegram after update:', JSON.stringify(config.telegram, null, 2));
       await this.configManager.save();
+      
+      // 保存 .env 文件（如果有更新）
+      if (Object.keys(envUpdates).length > 0) {
+        await this._saveEnvFile(envUpdates);
+        
+        // 重新加载 .env 文件，更新 process.env
+        require('dotenv').config({ override: true });
+        console.log('[WebServer] 环境变量已重新加载');
+      }
 
       return {
         success: true,

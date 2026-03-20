@@ -13,6 +13,9 @@
  * 目标环境：1C/512MB RAM
  */
 
+// 加载环境变量（必须在最前面）
+require('dotenv').config();
+
 const path = require('path');
 const configManager = require('./config');
 const storage = require('./storage');
@@ -21,6 +24,7 @@ const NotificationService = require('./notification/notification-service');
 const WSConnector = require('./ws-connector');
 const { TargetMonitor, VolatilityMonitor } = require('./monitors');
 const CheckerEngine = require('./checker-engine');
+const VolatilityEngine = require('./volatility-engine');
 const SystemMonitor = require('./monitor');
 const WebServer = require('./web-server');
 
@@ -34,6 +38,7 @@ class AppState {
     this.targetMonitor = null;
     this.volatilityMonitor = null;
     this.checkerEngine = null;
+    this.volatilityEngine = null;
     this.systemMonitor = null;
     this.webServer = null;
     
@@ -89,13 +94,22 @@ async function init() {
     app.targetMonitor = new TargetMonitor(app.storage, app.alertService, app.configManager);
     app.volatilityMonitor = new VolatilityMonitor(app.storage, app.alertService);
     
-    // 6. 初始化检查引擎
+    // 6. 初始化检查引擎（只负责价格目标监控）
     console.log('[Init] 初始化检查引擎...');
     app.checkerEngine = new CheckerEngine(
       app.configManager,
       app.storage,
       app.alertService,
       app.targetMonitor,
+      app.volatilityMonitor
+    );
+    
+    // 6b. 初始化波动侦测引擎（独立运行）
+    console.log('[Init] 初始化波动侦测引擎...');
+    app.volatilityEngine = new VolatilityEngine(
+      app.configManager,
+      app.storage,
+      app.alertService,
       app.volatilityMonitor
     );
     
@@ -161,11 +175,21 @@ async function start() {
     console.log('[Start] 等待 WebSocket 连接建立...');
     await waitForConnections(app.wsConnector, symbols.length, 10000);
     
-    // 2. 初始化波动监控状态
+    // 2. 初始化波动监控状态（波动侦测独立于价格监控，初始化所有币种）
     console.log('[Start] 初始化波动监控...');
-    symbols.forEach(s => {
+    const allSymbols = app.configManager.config.symbols || [];
+    allSymbols.forEach(s => {
       app.volatilityMonitor.init(s.symbol, s.volatility);
     });
+    
+    // 2b. 启动波动侦测引擎（如果启用）
+    const volatilityConfig = app.configManager.config.volatilityModule || {};
+    if (volatilityConfig.enabled) {
+      console.log('[Start] 启动波动侦测引擎...');
+      app.volatilityEngine.start();
+    } else {
+      console.log('[Start] 波动侦测未启用，跳过');
+    }
     
     // 3. 启动系统监控
     console.log('[Start] 启动系统监控...');
@@ -226,6 +250,11 @@ async function stop() {
   
   // 1. 停止检查引擎
   app.checkerEngine?.stop();
+  
+  // 1b. 停止波动侦测引擎
+  if (app.volatilityEngine) {
+    app.volatilityEngine.stop();
+  }
   
   // 2. 停止系统监控
   app.systemMonitor?.stop();

@@ -4,8 +4,51 @@
  * 包含：
  * - TargetMonitor: 价格目标线监控
  * - VolatilityMonitor: 波动侦测线监控
+ * - fetchBinanceSymbols: 获取币安全量交易对
  * - fetchAlphaPrice: 获取 Alpha 代币价格
  */
+
+// 缓存币安全量币种列表
+let binanceSymbolsCache = null;
+let binanceCacheTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 分钟缓存
+
+/**
+ * 获取币安全量 USDT 交易对
+ * @returns {Promise<string[]>} - 币种列表（如 ['BTCUSDT', 'ETHUSDT', ...]）
+ */
+async function fetchBinanceSymbols() {
+  // 检查缓存
+  const now = Date.now();
+  if (binanceSymbolsCache && (now - binanceCacheTime) < CACHE_DURATION) {
+    return binanceSymbolsCache;
+  }
+  
+  try {
+    const url = 'https://api.binance.com/api/v3/exchangeInfo';
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    // 筛选 USDT 交易对且状态正常的
+    const symbols = (data.symbols || [])
+      .filter(s => s.status === 'TRADING' && s.quoteAsset === 'USDT')
+      .map(s => s.symbol);
+    
+    // 更新缓存
+    binanceSymbolsCache = symbols;
+    binanceCacheTime = now;
+    
+    console.log(`[Binance] 获取全量币种：${symbols.length} 个 USDT 交易对`);
+    return symbols;
+  } catch (err) {
+    console.error(`[Binance] 获取币种列表失败：${err.message}`);
+    // 返回缓存（如果有）
+    if (binanceSymbolsCache) {
+      return binanceSymbolsCache;
+    }
+    return [];
+  }
+}
 
 /**
  * 获取 Alpha 代币价格
@@ -266,7 +309,7 @@ class VolatilityMonitor {
       // 更新状态并累加阈值
       this.storage.triggerVolatility(symbol);
       
-      console.log(`[Volatility] ${symbol} 波动 ${volatility.toFixed(2)}% 已触发，阈值累加`);
+      console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发，阈值累加`);
       return true;
     }
     
