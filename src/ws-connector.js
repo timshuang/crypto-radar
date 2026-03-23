@@ -1,5 +1,14 @@
 /**
- * ws-connector.js - WebSocket 连接模块（重构版）
+ * ws-connector.js - WebSocket 连接模块（v2 重构版）
+ * 
+ * 连接架构（最多 6 个连接）：
+ * 
+ * | 模块         | 模式       | 现货连接 | Alpha 连接 | 说明                      |
+ * |--------------|------------|---------|-----------|---------------------------|
+ * | 价格监控     | 组合流     | 1 个    | 1 个      | enabled: true 的币种      |
+ * | 波动侦测     | 监控列表   | 1 个    | 1 个      | scope: 'added' 所有监控列表币种 |
+ * | 波动侦测     | 全量推送   | 1 个    | 1 个      | scope: 'global' 全市场扫描 |
+ * | **总计**     | -          | **3 个**| **3 个**  | **最多 6 个连接**         |
  * 
  * 功能：
  * - 组合流连接（单个连接订阅多个指定币种）
@@ -7,25 +16,26 @@
  * - 现货和 Alpha 独立连接
  * - 断线重连（指数退避：5s → 10s → 20s → 40s → 60s 上限）
  * - 唯一 ID 管理（现货：symbol，Alpha：合约地址 ca）
- * 
- * 连接模式：
- * - monitorList: 组合流模式（监控列表）
- * - fullScan: 全量推送模式（全市场扫描）
  */
 
 const WebSocket = require('ws');
-const https = require('https');
 
 class WSConnector {
   constructor(dataManager) {
     this.dataManager = dataManager;
     
-    // 连接配置
-    this.spotConnection = null;  // 现货连接（单个）
-    this.alphaConnection = null; // Alpha 连接（单个）
+    // 连接池（最多 6 个连接）
+    this.connections = {
+      // 价格监控组合流
+      priceMonitorSpot: null,
+      priceMonitorAlpha: null,
+      
+      // 波动侦测（动态：组合流或全量推送）
+      volatilitySpot: null,
+      volatilityAlpha: null
+    };
     
     // 币安 WebSocket 地址
-    this.spotWsUrl = 'wss://stream.binance.com:9443/ws';
     this.spotCombinedWsUrl = 'wss://stream.binance.com:9443/stream';
     this.spotFullWsUrl = 'wss://stream.binance.com:9443/ws/!miniTicker@arr';
     this.alphaWsUrl = 'wss://nbstream.binance.com/w3w/wsa/stream';
@@ -39,339 +49,338 @@ class WSConnector {
     this.maxReconnectDelay = 60000; // 60 秒上限
     
     // 订阅管理
-    this.spotSubscriptions = new Set(); // 现货订阅列表（symbol）
-    this.alphaSubscriptions = new Map(); // Alpha 订阅列表（ca -> symbol）
+    this.priceMonitorSubscriptions = {
+      spot: new Set(),    // 现货订阅列表（symbol）
+      alpha: new Map()    // Alpha 订阅列表（ca -> symbol）
+    };
     
-    // 连接模式
-    this.mode = 'monitorList'; // 'monitorList' | 'fullScan'
+    // 波动侦测模式
+    this.volatilityMode = 'added'; // 'added' | 'global'
+    
+    // 符号映射缓存（全量推送时动态建立）
+    this.symbolCache = new Map(); // ca -> symbol
   }
 
   /**
-   * 设置连接模式
+   * 设置波动侦测模式
    */
-  setMode(mode) {
-    this.mode = mode;
-    console.log(`[WS] 连接模式设置为：${mode}`);
+  setVolatilityMode(mode) {
+    if (mode !== 'added' && mode !== 'global') {
+      console.warn(`[WS] 无效的波动模式：${mode}，使用默认 'added'`);
+      mode = 'added';
+    }
+    
+    const oldMode = this.volatilityMode;
+    this.volatilityMode = mode;
+    
+    console.log(`[WS] 波动侦测模式：${oldMode} -> ${mode}`);
+    
+    // 如果模式改变，需要重新连接波动侦测
+    if (oldMode !== mode && (this.connections.volatilitySpot || this.connections.volatilityAlpha)) {
+      console.log('[WS] 波动模式变更，需要重新连接波动侦测');
+    }
   }
 
   /**
-   * 构建组合流订阅列表（现货）
+   * 构建现货组合流订阅列表
    */
   buildSpotCombinedStreams(symbols) {
-    // 格式：symbolusdt@trade 或 symbolusdt@miniTicker
     return symbols.map(symbol => `${symbol.toLowerCase()}@miniTicker`);
   }
 
   /**
-   * 构建 Alpha 订阅列表
+   * 构建 Alpha 组合流订阅列表
    */
   buildAlphaSubscriptions(alphaTokens) {
-    // alphaTokens: [{ symbol: 'PIEVERSE', ca: '0x...123456', alphaId: 'ALPHA_469' }]
     const subscriptions = new Map();
     
     for (const token of alphaTokens) {
+      let caKey;
+      
       if (token.ca) {
-        // 使用合约地址后 6 位作为 key（兼容旧格式）
-        const caShort = token.ca.toLowerCase();
-        subscriptions.set(caShort, {
-          symbol: token.symbol,
-          ca: token.ca,
-          alphaId: token.alphaId,
-          streamName: `alpha_${token.alphaId.replace('ALPHA_', '')}usdt@miniTicker`
-        });
+        // 优先使用 ca
+        caKey = token.ca.toLowerCase();
       } else if (token.alphaId) {
-        // 向后兼容：没有 ca 字段时使用 alphaId
-        const caShort = token.alphaId.toLowerCase();
-        subscriptions.set(caShort, {
-          symbol: token.symbol,
-          ca: token.alphaId,
-          alphaId: token.alphaId,
-          streamName: `alpha_${token.alphaId.replace('ALPHA_', '')}usdt@miniTicker`
-        });
+        // 向后兼容：使用 alphaId
+        caKey = token.alphaId.toLowerCase();
+      } else {
+        console.warn(`[WS] Alpha 代币 ${token.symbol} 缺少 ca 和 alphaId，跳过`);
+        continue;
       }
+      
+      subscriptions.set(caKey, {
+        symbol: token.symbol,
+        ca: token.ca || token.alphaId,
+        alphaId: token.alphaId,
+        streamName: `alpha_${token.alphaId.replace('ALPHA_', '')}usdt@miniTicker`
+      });
     }
     
     return subscriptions;
   }
 
+  // ==================== 价格监控组合流 ====================
+
   /**
-   * 连接现货组合流（监控列表模式）
+   * 连接价格监控现货组合流
    */
-  connectSpotCombined(symbols) {
-    if (symbols.length === 0) {
-      console.log('[WS] 现货组合流：无订阅币种，跳过连接');
+  connectPriceMonitorSpot(symbols) {
+    if (!symbols || symbols.length === 0) {
+      console.log('[WS] 价格监控现货：无订阅币种，跳过连接');
       return;
     }
     
     const streams = this.buildSpotCombinedStreams(symbols);
     const streamUrl = `${this.spotCombinedWsUrl}?streams=${streams.join('/')}`;
     
-    console.log(`[WS] 现货组合流连接：${symbols.length} 个币种`);
+    console.log(`[WS] 价格监控现货组合流：${symbols.length} 个币种`);
     console.log(`[WS] 订阅流：${streams.join(', ')}`);
     
-    this._connectSpot(streamUrl, symbols);
+    this.priceMonitorSubscriptions.spot = new Set(symbols);
+    this._connect('priceMonitorSpot', streamUrl, { type: 'spot-combined', symbols });
   }
 
   /**
-   * 连接现货全量推送（全量扫描模式）
+   * 连接价格监控 Alpha 组合流
    */
-  connectSpotFull() {
-    console.log(`[WS] 现货全量推送连接：!miniTicker@arr`);
+  connectPriceMonitorAlpha(alphaTokens) {
+    if (!alphaTokens || alphaTokens.length === 0) {
+      console.log('[WS] 价格监控 Alpha：无订阅币种，跳过连接');
+      return;
+    }
     
-    this._connectSpot(this.spotFullWsUrl, []);
+    this.priceMonitorSubscriptions.alpha = this.buildAlphaSubscriptions(alphaTokens);
+    const streamNames = Array.from(this.priceMonitorSubscriptions.alpha.values()).map(s => s.streamName);
+    
+    console.log(`[WS] 价格监控 Alpha 组合流：${alphaTokens.length} 个币种`);
+    console.log(`[WS] 订阅流：${streamNames.join(', ')}`);
+    
+    this._connect('priceMonitorAlpha', this.alphaWsUrl, { 
+      type: 'alpha-combined', 
+      streamNames,
+      alphaTokens 
+    });
+  }
+
+  // ==================== 波动侦测（动态模式） ====================
+
+  /**
+   * 连接波动侦测现货（根据模式选择组合流或全量推送）
+   */
+  connectVolatilitySpot(symbols) {
+    if (this.volatilityMode === 'global') {
+      // 全量推送模式
+      console.log(`[WS] 波动侦测现货全量推送：!miniTicker@arr`);
+      this._connect('volatilitySpot', this.spotFullWsUrl, { type: 'spot-full' });
+    } else {
+      // 监控列表模式（组合流）
+      if (!symbols || symbols.length === 0) {
+        console.log('[WS] 波动侦测现货：无订阅币种，跳过连接');
+        return;
+      }
+      
+      const streams = this.buildSpotCombinedStreams(symbols);
+      const streamUrl = `${this.spotCombinedWsUrl}?streams=${streams.join('/')}`;
+      
+      console.log(`[WS] 波动侦测现货组合流：${symbols.length} 个币种`);
+      console.log(`[WS] 订阅流：${streams.join(', ')}`);
+      
+      this._connect('volatilitySpot', streamUrl, { type: 'spot-combined', symbols });
+    }
   }
 
   /**
-   * 现货连接内部实现
+   * 连接波动侦测 Alpha（根据模式选择组合流或全量推送）
    */
-  _connectSpot(streamUrl, symbols) {
+  connectVolatilityAlpha(alphaTokens) {
+    if (this.volatilityMode === 'global') {
+      // 全量推送模式
+      console.log(`[WS] 波动侦测 Alpha 全量推送：came@allTokens@ticker24`);
+      this._connect('volatilityAlpha', this.alphaWsUrl, { 
+        type: 'alpha-full',
+        streamNames: ['came@allTokens@ticker24']
+      });
+    } else {
+      // 监控列表模式（组合流）
+      if (!alphaTokens || alphaTokens.length === 0) {
+        console.log('[WS] 波动侦测 Alpha：无订阅币种，跳过连接');
+        return;
+      }
+      
+      const subscriptions = this.buildAlphaSubscriptions(alphaTokens);
+      const streamNames = Array.from(subscriptions.values()).map(s => s.streamName);
+      
+      console.log(`[WS] 波动侦测 Alpha 组合流：${alphaTokens.length} 个币种`);
+      console.log(`[WS] 订阅流：${streamNames.join(', ')}`);
+      
+      this._connect('volatilityAlpha', this.alphaWsUrl, { 
+        type: 'alpha-combined', 
+        streamNames,
+        alphaTokens,
+        subscriptions
+      });
+    }
+  }
+
+  // ==================== 内部连接实现 ====================
+
+  /**
+   * 通用连接方法
+   */
+  _connect(name, streamUrl, options) {
     // 清理旧连接
-    if (this.spotConnection) {
-      this._cleanupConnection(this.spotConnection);
+    if (this.connections[name]) {
+      this._cleanupConnection(this.connections[name]);
     }
     
     const ws = new WebSocket(streamUrl);
     
-    this.spotConnection = {
+    const connection = {
+      name,
       ws,
+      options,
       reconnectDelay: this.initialReconnectDelay,
       reconnectTimer: null,
       pingInterval: null,
       pongTimeout: null,
       lastMessageTime: 0,
-      messageCount: 0,
-      symbols: new Set(symbols)
+      messageCount: 0
     };
     
     // 绑定事件处理
-    ws.on('open', () => this._onSpotOpen(this.spotConnection));
-    ws.on('message', (data) => this._onSpotMessage(this.spotConnection, data));
-    ws.on('error', (err) => this._onSpotError(this.spotConnection, err));
-    ws.on('close', (code, reason) => this._onSpotClose(this.spotConnection, code, reason));
-    ws.on('pong', () => this._onPong(this.spotConnection));
+    ws.on('open', () => this._onOpen(connection));
+    ws.on('message', (data) => this._onMessage(connection, data));
+    ws.on('error', (err) => this._onError(connection, err));
+    ws.on('close', (code, reason) => this._onClose(connection, code, reason));
+    ws.on('pong', () => this._onPong(connection));
+    
+    this.connections[name] = connection;
   }
 
   /**
-   * 连接 Alpha 组合流（监控列表模式）
+   * 连接成功处理
    */
-  connectAlphaCombined(alphaTokens) {
-    if (!alphaTokens || alphaTokens.length === 0) {
-      console.log('[WS] Alpha 组合流：无订阅币种，跳过连接');
-      return;
-    }
-    
-    this.alphaSubscriptions = this.buildAlphaSubscriptions(alphaTokens);
-    const streamNames = Array.from(this.alphaSubscriptions.values()).map(s => s.streamName);
-    
-    console.log(`[WS] Alpha 组合流连接：${alphaTokens.length} 个币种`);
-    console.log(`[WS] 订阅流：${streamNames.join(', ')}`);
-    
-    this._connectAlpha(streamNames);
-  }
-
-  /**
-   * 连接 Alpha 全量推送（全量扫描模式）
-   */
-  connectAlphaFull() {
-    console.log(`[WS] Alpha 全量推送连接：came@allTokens@ticker24`);
-    
-    // 全量推送不需要预定义订阅列表
-    this.alphaSubscriptions = new Map();
-    this._connectAlpha(['came@allTokens@ticker24']);
-  }
-
-  /**
-   * Alpha 连接内部实现
-   */
-  _connectAlpha(streamNames) {
-    // 清理旧连接
-    if (this.alphaConnection) {
-      this._cleanupConnection(this.alphaConnection);
-    }
-    
-    const ws = new WebSocket(this.alphaWsUrl);
-    
-    this.alphaConnection = {
-      ws,
-      reconnectDelay: this.initialReconnectDelay,
-      reconnectTimer: null,
-      pingInterval: null,
-      pongTimeout: null,
-      lastMessageTime: 0,
-      messageCount: 0,
-      streamNames
-    };
-    
-    // 绑定事件处理
-    ws.on('open', () => this._onAlphaOpen(this.alphaConnection));
-    ws.on('message', (data) => this._onAlphaMessage(this.alphaConnection, data));
-    ws.on('error', (err) => this._onAlphaError(this.alphaConnection, err));
-    ws.on('close', (code, reason) => this._onAlphaClose(this.alphaConnection, code, reason));
-    ws.on('pong', () => this._onPong(this.alphaConnection));
-  }
-
-  /**
-   * 现货连接成功处理
-   */
-  _onSpotOpen(connection) {
-    console.log(`[WS] 现货连接成功`);
+  _onOpen(connection) {
+    console.log(`[WS] ${connection.name} 连接成功`);
     connection.reconnectDelay = this.initialReconnectDelay;
     connection.lastMessageTime = Date.now();
     
+    // Alpha 连接需要发送订阅消息
+    if (connection.options.type.includes('alpha') && connection.options.streamNames) {
+      const subscribeMsg = {
+        method: 'SUBSCRIBE',
+        params: connection.options.streamNames,
+        id: Date.now()
+      };
+      connection.ws.send(JSON.stringify(subscribeMsg));
+      console.log(`[WS] ${connection.name} 已订阅 ${connection.options.streamNames.length} 个流`);
+    }
+    
     // 启动心跳检测
     this._startHeartbeat(connection);
-    
-    // 如果是组合流模式，记录订阅的币种
-    if (connection.symbols.size > 0) {
-      console.log(`[WS] 现货已订阅 ${connection.symbols.size} 个币种`);
-    }
   }
 
   /**
-   * 现货消息处理
+   * 收到消息处理
    */
-  _onSpotMessage(connection, data) {
+  _onMessage(connection, data) {
     try {
       const msg = JSON.parse(data.toString());
       connection.lastMessageTime = Date.now();
       connection.messageCount++;
       
-      // 全量推送是数组，组合流是单个对象
-      const messages = Array.isArray(msg) ? msg : [msg];
+      const { type } = connection.options;
       
-      for (const item of messages) {
-        if (item.e === 'miniTicker') {
-          const symbol = item.s; // 如 BTCUSDT
-          const price = parseFloat(item.c); // close price
-          const volume = parseFloat(item.q) || 0; // quote volume
-          const time = item.E || Date.now();
+      // 现货全量推送（数组）
+      if (type === 'spot-full') {
+        const messages = Array.isArray(msg) ? msg : [msg];
+        
+        for (const item of messages) {
+          if (item.e === 'miniTicker') {
+            const symbol = item.s;
+            const price = parseFloat(item.c);
+            const volume = parseFloat(item.q) || 0;
+            const time = item.E || Date.now();
+            
+            if (!isNaN(price)) {
+              this.dataManager.addPriceRecord(symbol, time, price, volume);
+            }
+          }
+        }
+      }
+      // 现货组合流（单个对象）
+      else if (type === 'spot-combined') {
+        if (msg.e === 'miniTicker') {
+          const symbol = msg.s;
+          const price = parseFloat(msg.c);
+          const volume = parseFloat(msg.q) || 0;
+          const time = msg.E || Date.now();
           
           if (!isNaN(price)) {
             this.dataManager.addPriceRecord(symbol, time, price, volume);
           }
         }
       }
-    } catch (err) {
-      console.error(`[WS] 现货消息解析错误：${err.message}`);
-    }
-  }
-
-  /**
-   * 现货错误处理
-   */
-  _onSpotError(connection, err) {
-    console.error(`[WS] 现货错误：${err.message}`);
-  }
-
-  /**
-   * 现货关闭处理
-   */
-  _onSpotClose(connection, code, reason) {
-    console.warn(`[WS] 现货关闭：code=${code}, reason=${reason?.toString() || 'unknown'}`);
-    
-    // 清理连接
-    this._cleanupConnection(connection);
-    
-    // 触发重连
-    this._scheduleReconnect('spot', connection);
-  }
-
-  /**
-   * Alpha 连接成功处理
-   */
-  _onAlphaOpen(connection) {
-    console.log(`[WS] Alpha 连接成功`);
-    connection.reconnectDelay = this.initialReconnectDelay;
-    connection.lastMessageTime = Date.now();
-    
-    // 发送订阅消息
-    if (connection.streamNames && connection.streamNames.length > 0) {
-      const subscribeMsg = {
-        method: 'SUBSCRIBE',
-        params: connection.streamNames,
-        id: Date.now()
-      };
-      connection.ws.send(JSON.stringify(subscribeMsg));
-      console.log(`[WS] Alpha 已订阅 ${connection.streamNames.length} 个流`);
-    }
-    
-    // 启动心跳检测
-    this._startHeartbeat(connection);
-  }
-
-  /**
-   * Alpha 消息处理
-   */
-  _onAlphaMessage(connection, data) {
-    try {
-      const msg = JSON.parse(data.toString());
-      connection.lastMessageTime = Date.now();
-      connection.messageCount++;
-      
-      // Alpha 推送格式：
-      // {"data":{"d":[{"s":"PIEVERSE","ca":"0x...123456","lp":"0.566"},...]}}
-      
-      if (msg.data && msg.data.d && Array.isArray(msg.data.d)) {
-        const tokens = msg.data.d;
-        
-        for (const token of tokens) {
-          const symbol = token.s;
-          const ca = token.ca ? token.ca.toLowerCase() : null;
-          const price = parseFloat(token.lp); // last price
-          const time = Date.now();
+      // Alpha 全量推送或组合流
+      else if (type.includes('alpha')) {
+        // Alpha 推送格式：{"data":{"d":[{"s":"PIEVERSE","ca":"0x...","lp":"0.566"},...]}}
+        if (msg.data && msg.data.d && Array.isArray(msg.data.d)) {
+          const tokens = msg.data.d;
           
-          if (!isNaN(price)) {
-            // 使用合约地址作为 key（如果有）
-            let key = symbol;
-            if (ca) {
-              // 后台使用合约地址作为唯一标识
-              key = ca;
-              
-              // 同时记录 symbol -> ca 映射（用于显示）
-              if (!this.dataManager.getSymbolMapping) {
+          for (const token of tokens) {
+            const symbol = token.s;
+            const ca = token.ca ? token.ca.toLowerCase() : null;
+            const price = parseFloat(token.lp);
+            const time = Date.now();
+            
+            if (!isNaN(price)) {
+              // 全量推送时动态建立 ca -> symbol 映射
+              if (ca && type === 'alpha-full') {
+                this.symbolCache.set(ca, symbol);
                 this.dataManager.setSymbolMapping(symbol, ca);
               }
+              
+              // 使用 ca 作为内部 key（如果有）
+              const key = ca || symbol;
+              this.dataManager.addPriceRecord(key, time, price, 0, symbol);
             }
-            
-            this.dataManager.addPriceRecord(key, time, price, 0, symbol);
           }
         }
-      }
-      
-      // 订阅响应处理
-      if (msg.id && msg.result !== undefined) {
-        console.log(`[WS] Alpha 订阅响应：id=${msg.id}, result=${msg.result}`);
+        
+        // 订阅响应处理
+        if (msg.id && msg.result !== undefined) {
+          console.log(`[WS] ${connection.name} 订阅响应：id=${msg.id}, result=${msg.result}`);
+        }
       }
     } catch (err) {
-      console.error(`[WS] Alpha 消息解析错误：${err.message}`);
+      console.error(`[WS] ${connection.name} 消息解析错误：${err.message}`);
     }
   }
 
   /**
-   * Alpha 错误处理
+   * 错误处理
    */
-  _onAlphaError(connection, err) {
-    console.error(`[WS] Alpha 错误：${err.message}`);
+  _onError(connection, err) {
+    console.error(`[WS] ${connection.name} 错误：${err.message}`);
   }
 
   /**
-   * Alpha 关闭处理
+   * 关闭处理
    */
-  _onAlphaClose(connection, code, reason) {
-    console.warn(`[WS] Alpha 关闭：code=${code}, reason=${reason?.toString() || 'unknown'}`);
+  _onClose(connection, code, reason) {
+    console.warn(`[WS] ${connection.name} 关闭：code=${code}, reason=${reason?.toString() || 'unknown'}`);
     
     // 清理连接
     this._cleanupConnection(connection);
     
     // 触发重连
-    this._scheduleReconnect('alpha', connection);
+    this._scheduleReconnect(connection);
   }
 
   /**
    * 收到 Pong 处理
    */
   _onPong(connection) {
-    // 清除 pong 超时定时器
     if (connection.pongTimeout) {
       clearTimeout(connection.pongTimeout);
       connection.pongTimeout = null;
@@ -382,7 +391,6 @@ class WSConnector {
    * 启动心跳检测
    */
   _startHeartbeat(connection) {
-    // 清除旧的心跳
     if (connection.pingInterval) {
       clearInterval(connection.pingInterval);
     }
@@ -391,9 +399,8 @@ class WSConnector {
       if (connection.ws.readyState === WebSocket.OPEN) {
         connection.ws.ping();
         
-        // 设置 pong 超时
         connection.pongTimeout = setTimeout(() => {
-          console.warn(`[WS] Pong 超时，关闭连接`);
+          console.warn(`[WS] ${connection.name} Pong 超时，关闭连接`);
           connection.ws.terminate();
         }, this.pongTimeout);
       }
@@ -403,31 +410,32 @@ class WSConnector {
   /**
    * 调度重连（指数退避）
    */
-  _scheduleReconnect(type, connection) {
-    const { reconnectDelay } = connection;
+  _scheduleReconnect(connection) {
+    const { name, reconnectDelay, options } = connection;
     
-    console.log(`[WS] ${type} ${reconnectDelay}ms 后重连`);
+    console.log(`[WS] ${name} ${reconnectDelay}ms 后重连`);
     
-    // 清除旧的重连定时器
     if (connection.reconnectTimer) {
       clearTimeout(connection.reconnectTimer);
     }
     
     connection.reconnectTimer = setTimeout(() => {
-      // 重新连接
-      if (type === 'spot') {
-        if (this.mode === 'fullScan') {
-          this.connectSpotFull();
+      // 根据连接类型和模式重新连接
+      if (name === 'priceMonitorSpot') {
+        this.connectPriceMonitorSpot(Array.from(options.symbols));
+      } else if (name === 'priceMonitorAlpha') {
+        this.connectPriceMonitorAlpha(options.alphaTokens);
+      } else if (name === 'volatilitySpot') {
+        if (this.volatilityMode === 'global') {
+          this.connectVolatilitySpot([]);
         } else {
-          const symbols = Array.from(connection.symbols);
-          this.connectSpotCombined(symbols);
+          this.connectVolatilitySpot(Array.from(options.symbols));
         }
-      } else if (type === 'alpha') {
-        if (this.mode === 'fullScan') {
-          this.connectAlphaFull();
+      } else if (name === 'volatilityAlpha') {
+        if (this.volatilityMode === 'global') {
+          this.connectVolatilityAlpha([]);
         } else {
-          const alphaTokens = Array.from(this.alphaSubscriptions.values());
-          this.connectAlphaCombined(alphaTokens);
+          this.connectVolatilityAlpha(options.alphaTokens);
         }
       }
     }, reconnectDelay);
@@ -470,20 +478,29 @@ class WSConnector {
    * 断开所有连接
    */
   disconnectAll() {
-    if (this.spotConnection) {
-      this._cleanupConnection(this.spotConnection);
-      this.spotConnection = null;
+    for (const [name, connection] of Object.entries(this.connections)) {
+      if (connection) {
+        this._cleanupConnection(connection);
+        this.connections[name] = null;
+      }
     }
     
-    if (this.alphaConnection) {
-      this._cleanupConnection(this.alphaConnection);
-      this.alphaConnection = null;
-    }
-    
-    this.spotSubscriptions.clear();
-    this.alphaSubscriptions.clear();
+    this.priceMonitorSubscriptions.spot.clear();
+    this.priceMonitorSubscriptions.alpha.clear();
+    this.symbolCache.clear();
     
     console.log('[WS] 所有连接已断开');
+  }
+
+  /**
+   * 断开指定连接
+   */
+  disconnect(name) {
+    if (this.connections[name]) {
+      this._cleanupConnection(this.connections[name]);
+      this.connections[name] = null;
+      console.log(`[WS] ${name} 已断开`);
+    }
   }
 
   /**
@@ -493,33 +510,26 @@ class WSConnector {
     const now = Date.now();
     const unhealthy = [];
     
-    // 检查现货连接
-    if (this.spotConnection) {
-      if (now - this.spotConnection.lastMessageTime > 5 * 60 * 1000) {
+    for (const [name, connection] of Object.entries(this.connections)) {
+      if (connection && now - connection.lastMessageTime > 5 * 60 * 1000) {
         unhealthy.push({
-          type: 'spot',
-          lastMessageTime: this.spotConnection.lastMessageTime,
-          messageCount: this.spotConnection.messageCount
+          name,
+          lastMessageTime: connection.lastMessageTime,
+          messageCount: connection.messageCount
         });
-        console.warn(`[WS] 现货数据异常：${Math.floor((now - this.spotConnection.lastMessageTime) / 1000)}s 无新价格`);
-      }
-    }
-    
-    // 检查 Alpha 连接
-    if (this.alphaConnection) {
-      if (now - this.alphaConnection.lastMessageTime > 5 * 60 * 1000) {
-        unhealthy.push({
-          type: 'alpha',
-          lastMessageTime: this.alphaConnection.lastMessageTime,
-          messageCount: this.alphaConnection.messageCount
-        });
-        console.warn(`[WS] Alpha 数据异常：${Math.floor((now - this.alphaConnection.lastMessageTime) / 1000)}s 无新价格`);
+        console.warn(`[WS] ${name} 数据异常：${Math.floor((now - connection.lastMessageTime) / 1000)}s 无新价格`);
       }
     }
     
     return {
-      spot: this.spotConnection ? { connected: true, ...this.spotConnection } : null,
-      alpha: this.alphaConnection ? { connected: true, ...this.alphaConnection } : null,
+      connections: Object.entries(this.connections)
+        .filter(([_, conn]) => conn !== null)
+        .map(([name, conn]) => ({
+          name,
+          connected: conn.ws.readyState === WebSocket.OPEN,
+          lastMessageTime: conn.lastMessageTime,
+          messageCount: conn.messageCount
+        })),
       unhealthy: unhealthy.length,
       details: unhealthy
     };
@@ -530,28 +540,27 @@ class WSConnector {
    */
   getStats() {
     const stats = {
-      mode: this.mode,
-      spot: null,
-      alpha: null
+      volatilityMode: this.volatilityMode,
+      totalConnections: 0,
+      connections: {}
     };
     
-    if (this.spotConnection) {
-      stats.spot = {
-        connected: this.spotConnection.ws.readyState === WebSocket.OPEN,
-        lastMessageTime: this.spotConnection.lastMessageTime,
-        messageCount: this.spotConnection.messageCount,
-        symbolsCount: this.spotConnection.symbols.size
-      };
+    for (const [name, connection] of Object.entries(this.connections)) {
+      if (connection) {
+        stats.totalConnections++;
+        stats.connections[name] = {
+          connected: connection.ws.readyState === WebSocket.OPEN,
+          lastMessageTime: connection.lastMessageTime,
+          messageCount: connection.messageCount,
+          type: connection.options.type
+        };
+      }
     }
     
-    if (this.alphaConnection) {
-      stats.alpha = {
-        connected: this.alphaConnection.ws.readyState === WebSocket.OPEN,
-        lastMessageTime: this.alphaConnection.lastMessageTime,
-        messageCount: this.alphaConnection.messageCount,
-        subscriptionsCount: this.alphaSubscriptions.size
-      };
-    }
+    // 统计订阅数量
+    stats.priceMonitorSpotSymbols = this.priceMonitorSubscriptions.spot.size;
+    stats.priceMonitorAlphaTokens = this.priceMonitorSubscriptions.alpha.size;
+    stats.symbolCacheSize = this.symbolCache.size;
     
     return stats;
   }

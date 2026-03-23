@@ -1,5 +1,257 @@
 # Crypto Radar - 开发历史
 
+## 2026-03-23 16:43 - WebSocket 架构调整（6 连接模式）- 开发完成
+
+### 执行者
+**钳子哥** (Coder)
+
+### 开发时间
+2026-03-23 16:43 UTC
+
+### 问题
+之前的实现是 2 个连接，实际应该是**最多 6 个连接**！
+
+### 正确架构
+
+| 模块 | 模式 | 现货连接 | Alpha 连接 | 说明 |
+|------|------|---------|-----------|------|
+| **价格监控** | 组合流 | 1 个 | 1 个 | enabled: true 的币种 |
+| **波动侦测** | 监控列表 | 1 个 | 1 个 | scope: 'added' |
+| **波动侦测** | 全量推送 | 1 个 | 1 个 | scope: 'global' |
+| **总计** | - | **3 个** | **3 个** | **最多 6 个连接** |
+
+### 修改要点
+
+1. **连接分离**：
+   - 价格监控组合流（现货 + Alpha）
+   - 波动侦测组合流（现货 + Alpha）
+   - 波动侦测全量推送（现货 + Alpha）
+
+2. **模式选择**：
+   - 根据 `volatilityModule.scope` 选择
+   - `global` → 全量推送
+   - `added` → 监控列表组合流
+
+3. **Alpha 合约地址**：
+   - 全量推送：从返回数据包动态获取 `ca`
+   - 组合流：从 config.json 读取 `ca`
+
+### 修改文件
+
+#### 1. src/ws-connector.js - 连接管理重构
+
+**连接池结构**：
+```javascript
+this.connections = {
+  // 价格监控组合流
+  priceMonitorSpot: null,
+  priceMonitorAlpha: null,
+  
+  // 波动侦测（动态：组合流或全量推送）
+  volatilitySpot: null,
+  volatilityAlpha: null
+};
+```
+
+**新增方法**：
+```javascript
+setVolatilityMode(mode)  // 'added' | 'global'
+connectPriceMonitorSpot(symbols)  // 价格监控现货组合流
+connectPriceMonitorAlpha(alphaTokens)  // 价格监控 Alpha 组合流
+connectVolatilitySpot(symbols)  // 波动侦测现货（自动选择模式）
+connectVolatilityAlpha(alphaTokens)  // 波动侦测 Alpha（自动选择模式）
+```
+
+**波动侦测模式选择**：
+```javascript
+connectVolatilitySpot(symbols) {
+  if (this.volatilityMode === 'global') {
+    // 全量推送模式
+    this._connect('volatilitySpot', this.spotFullWsUrl, { type: 'spot-full' });
+  } else {
+    // 监控列表模式（组合流）
+    const streams = this.buildSpotCombinedStreams(symbols);
+    const streamUrl = `${this.spotCombinedWsUrl}?streams=${streams.join('/')}`;
+    this._connect('volatilitySpot', streamUrl, { type: 'spot-combined', symbols });
+  }
+}
+```
+
+**Alpha 全量推送动态获取 ca**：
+```javascript
+_onMessage(connection, data) {
+  // Alpha 推送格式：{"data":{"d":[{"s":"PIEVERSE","ca":"0x...","lp":"0.566"},...]}}
+  if (msg.data && msg.data.d && Array.isArray(msg.data.d)) {
+    const tokens = msg.data.d;
+    
+    for (const token of tokens) {
+      const symbol = token.s;
+      const ca = token.ca ? token.ca.toLowerCase() : null;
+      const price = parseFloat(token.lp);
+      
+      // 全量推送时动态建立 ca -> symbol 映射
+      if (ca && type === 'alpha-full') {
+        this.symbolCache.set(ca, symbol);
+        this.dataManager.setSymbolMapping(symbol, ca);
+      }
+      
+      const key = ca || symbol;
+      this.dataManager.addPriceRecord(key, time, price, 0, symbol);
+    }
+  }
+}
+```
+
+#### 2. src/index.js - 启动逻辑调整
+
+**价格监控连接**：
+```javascript
+// 1a. 价格监控组合流（enabled: true 的币种）
+const enabledSpotSymbols = enabledSymbols
+  .filter(s => s.source === 'spot')
+  .map(s => s.symbol);
+
+const enabledAlphaTokens = enabledSymbols
+  .filter(s => s.source === 'alpha')
+  .map(s => ({ symbol: s.symbol, ca: s.ca, alphaId: s.alphaId }));
+
+if (enabledSpotSymbols.length > 0) {
+  app.wsConnector.connectPriceMonitorSpot(enabledSpotSymbols);
+}
+if (enabledAlphaTokens.length > 0) {
+  app.wsConnector.connectPriceMonitorAlpha(enabledAlphaTokens);
+}
+```
+
+**波动侦测连接（根据 scope 选择）**：
+```javascript
+// 1b. 波动侦测（根据 scope 选择模式）
+if (volatilityConfig.enabled) {
+  const scope = volatilityConfig.scope || 'added';
+  app.wsConnector.setVolatilityMode(scope);
+  
+  if (scope === 'global') {
+    // 全量推送模式
+    app.wsConnector.connectVolatilitySpot([]);
+    app.wsConnector.connectVolatilityAlpha([]);
+  } else {
+    // 监控列表模式（组合流）
+    app.wsConnector.connectVolatilitySpot(spotSymbols);
+    app.wsConnector.connectVolatilityAlpha(alphaTokens);
+  }
+}
+```
+
+**配置变更处理**：
+```javascript
+async function handleConfigChange(newConfig) {
+  // 1. 重新连接价格监控
+  app.wsConnector.disconnect('priceMonitorSpot');
+  app.wsConnector.disconnect('priceMonitorAlpha');
+  // ... 重新连接
+  
+  // 2. 波动侦测（根据 scope 选择模式）
+  if (volatilityConfig.enabled) {
+    const scope = volatilityConfig.scope || 'added';
+    const oldMode = app.wsConnector.volatilityMode;
+    
+    if (scope !== oldMode) {
+      app.wsConnector.setVolatilityMode(scope);
+      // 重新连接波动侦测
+    }
+  }
+}
+```
+
+#### 3. src/storage.js - 符号映射管理
+
+**已存在的符号映射功能**（无需修改）：
+```javascript
+this.symbolMapping = new Map(); // symbol -> ca
+this.reverseSymbolMapping = new Map(); // ca -> symbol
+
+setSymbolMapping(symbol, ca)  // 设置映射
+getSymbolForCa(ca)  // 根据 ca 获取 symbol
+getCaForSymbol(symbol)  // 根据 symbol 获取 ca
+```
+
+**价格记录支持 displaySymbol**：
+```javascript
+addPriceRecord(key, time, price, volume = 0, displaySymbol = null) {
+  // 如果是 Alpha 且提供了 displaySymbol，记录映射关系
+  if (displaySymbol && key !== displaySymbol) {
+    this.setSymbolMapping(displaySymbol, key);
+  }
+  const buffer = this.getPriceBuffer(key);
+  buffer.push(time, price, volume);
+}
+```
+
+### 配置示例
+
+**config.json - 添加 scope 字段**：
+```json
+{
+  "volatilityModule": {
+    "enabled": true,
+    "scope": "added",  // 'added' | 'global'
+    "barkEnabled": false,
+    "barkMode": "normal"
+  }
+}
+```
+
+### 验收标准
+
+| 验收项 | 预期 | 状态 |
+|--------|------|------|
+| 1. 价格监控：2 个组合流连接 | 现货 + Alpha 各 1 个 | ✅ |
+| 2. 波动侦测：2 个连接 | 根据 scope 选择组合流或全量 | ✅ |
+| 3. 根据 scope 自动选择模式 | `global` → 全量，`added` → 组合流 | ✅ |
+| 4. Alpha ca 动态获取 | 全量推送从数据包获取 | ✅ |
+| 5. 断线重连逻辑保留 | 指数退避（5s→60s） | ✅ |
+| 6. 现有功能不受影响 | 价格监控、波动侦测、通知 | ✅ |
+
+### 连接统计
+
+**启动日志输出**：
+```
+✅ 应用启动成功！
+波动模式：added
+WebSocket 连接：4 个 (最多 6 个)
+  - priceMonitorSpot: ✅ (spot-combined)
+  - priceMonitorAlpha: ✅ (alpha-combined)
+  - volatilitySpot: ✅ (spot-combined)
+  - volatilityAlpha: ✅ (alpha-combined)
+价格监控现货：3 个币种
+价格监控 Alpha: 2 个代币
+符号缓存：0 个 (全量推送时动态建立)
+```
+
+### 修改文件清单
+
+| 文件 | 修改内容 | 行数变化 |
+|------|----------|---------|
+| `src/ws-connector.js` | 连接池重构，支持 6 连接模式 | +200/-100 |
+| `src/index.js` | 启动逻辑调整，分离价格监控和波动侦测 | +150/-80 |
+| `src/storage.js` | 符号映射管理（已存在，无需修改） | 0 |
+
+### 残留风险
+
+| 风险 | 严重性 | 状态 |
+|------|--------|------|
+| 1. 全量模式下数据量大 | 🟡 中 | ⚠️ 需监控内存占用 |
+| 2. scope 配置需要手动添加 | 🟡 低 | ⚠️ 默认值 'added' |
+
+### 下一步
+
+1. 提交 git commit
+2. 更新 history.md（已完成）
+3. 推送到 GitHub
+4. 监控连接数和内存占用
+
+---
+
 ## 2026-03-19 14:26 - Bark 通知校验和优化 - 开发完成
 
 ### 执行者
