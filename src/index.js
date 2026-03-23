@@ -203,7 +203,6 @@ async function start() {
     });
     
     // 2b. 启动波动侦测引擎（如果启用）
-    const volatilityConfig = app.configManager.config.volatilityModule || {};
     if (volatilityConfig.enabled) {
       console.log('[Start] 启动波动侦测引擎...');
       app.volatilityEngine.start();
