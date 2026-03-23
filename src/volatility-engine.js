@@ -187,6 +187,7 @@ class VolatilityEngine {
       let volatilityTriggers = 0;
       const silenceMinutes = this.configManager.getSettings().alertSilenceMinutes || 5;
       const silenceMs = silenceMinutes * 60 * 1000;
+      console.log(`[Volatility] 静默期配置：${silenceMinutes}分钟 (${silenceMs}ms)`);
       const now = Date.now();
       
       // 获取告警状态
@@ -208,10 +209,11 @@ class VolatilityEngine {
           continue;
         }
         
-        // 检查静默期
-        const symbolState = volatilityState[symbol];
-        if (symbolState && symbolState.silenceUntil && symbolState.silenceUntil > now) {
-          const remainingMs = symbolState.silenceUntil - now;
+        // 检查静默期（使用 storage 的统一方法）
+        const volatilityKey = `${symbol}_volatility`;
+        if (!this.storage.canAlert(volatilityKey)) {
+          const silenceUntil = this.storage.getSilenceUntil(volatilityKey);
+          const remainingMs = silenceUntil - now;
           const remainingMin = Math.ceil(remainingMs / 60000);
           if (volatilitySymbols.length <= 10 || volatilitySymbols.indexOf(symbolConfig) < 5) {
             console.log(`[Volatility] ${symbol} 静默期中，剩余 ${remainingMin} 分钟`);
@@ -241,24 +243,15 @@ class VolatilityEngine {
         }
         
         if (volatilityResult && volatilityResult.isTriggered) {
+          console.log(`[Volatility] ${symbol} 触发，调用 handleTrigger...`);
+          
           // 调用 handleTrigger 处理静默期和通知
           const success = await this.volatilityMonitor.handleTrigger(volatilityResult);
           
+          console.log(`[Volatility] ${symbol} handleTrigger 返回：${success}`);
+          
           if (success) {
             volatilityTriggers++;
-            
-            // 更新静默期
-            const newSilenceUntil = now + silenceMs;
-            volatilityState[symbol] = {
-              lastAlertAt: now,
-              silenceUntil: newSilenceUntil
-            };
-            
-            // 持久化状态
-            await this.storage.saveAlertState({
-              ...alertState,
-              volatility: volatilityState
-            });
           }
         }
       }

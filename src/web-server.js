@@ -1321,6 +1321,38 @@ class WebServer extends EventEmitter {
 
     console.log(`[WebServer] 波动侦测已开启：scope=${config.volatilityModule.scope}, window=${config.volatilityModule.windowMinutes}min, threshold=${config.volatilityModule.thresholdPercent}%`);
 
+    // 构建并发送 TG 通知
+    const scope = config.volatilityModule.scope || 'global';
+    const windowMinutes = config.volatilityModule.windowMinutes || 5;
+    const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
+    const silenceMinutes = 5;
+    
+    let rangeText;
+    if (scope === 'global') {
+      rangeText = '全量';
+    } else {
+      // 监控列表模式，列出所有添加到监控列表的币种（不管 enabled 状态）
+      const allSymbols = (config.symbols || [])
+        .map(s => s.symbol);
+      const count = allSymbols.length;
+      const symbolList = allSymbols.join(', ');
+      rangeText = `监控列表（${count}个：${symbolList}）`;
+    }
+    
+    const message = `🌊 波动侦测开启
+
+范围：${rangeText}
+窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟`;
+    
+    // 发送 TG 通知（不等待，不阻塞）
+    if (this.app?.alertService) {
+      this.app.alertService.sendTextToTelegram(message).catch(err => {
+        console.error('[WebServer] 发送波动侦测开启通知失败:', err.message);
+      });
+    } else {
+      console.warn('[WebServer] alertService 未初始化，跳过通知发送');
+    }
+
     // 直接启动波动引擎（如果已初始化）
     console.log('[WebServer] this.app:', this.app ? '存在' : 'undefined');
     console.log('[WebServer] this.app.volatilityEngine:', this.app?.volatilityEngine ? '存在' : 'undefined');

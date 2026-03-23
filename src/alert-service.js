@@ -279,9 +279,8 @@ class AlertService extends EventEmitter {
     const currentPrice = latestPrice?.price || max;
     
     // 获取窗口起始价格（第一个价格）
-    const windowStats = this.storage?.getWindowStats(
-      this.configManager?.config?.symbols?.find(s => s.symbol === symbol)?.volatility?.windowMinutes || 5
-    );
+    const windowMinutes = this.configManager?.config?.volatilityModule?.windowMinutes || 5;
+    const windowStats = this.storage?.getWindowStats(windowMinutes);
     const startPrice = windowStats?.startPrice || min;
     
     // 判断方向：当前价 > 起始价 = 上涨，否则 = 下跌
@@ -435,6 +434,45 @@ class AlertService extends EventEmitter {
       size: this.failedQueue.length,
       maxSize: this.maxQueueSize
     };
+  }
+
+  /**
+   * 发送文本消息到 Telegram（用于系统通知）
+   */
+  async sendTextToTelegram(text) {
+    try {
+      const tgConfig = this.configManager?.config?.telegram;
+      if (!tgConfig?.enabled || !tgConfig.botToken || !tgConfig.chatId) {
+        console.log('[Alert] Telegram 未配置，跳过文本通知');
+        return { success: false, error: 'Telegram 未配置' };
+      }
+
+      const url = `https://api.telegram.org/bot${tgConfig.botToken}/sendMessage`;
+      const body = {
+        chat_id: tgConfig.chatId,
+        text: text,
+        parse_mode: 'Markdown'
+      };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const result = await response.json();
+      
+      if (result.ok) {
+        console.log('[Alert] Telegram 文本通知已发送');
+        return { success: true };
+      } else {
+        console.error(`[Alert] Telegram 文本通知失败：${result.description}`);
+        return { success: false, error: result.description };
+      }
+    } catch (err) {
+      console.error(`[Alert] Telegram 文本通知异常：${err.message}`);
+      return { success: false, error: err.message };
+    }
   }
 }
 

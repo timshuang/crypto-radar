@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "id": "alert_1774071857905",
+      "symbol": "CYS",
+      "source": "target",
+      "type": "above",
+      "targetPrice": 0.55,
+      "currentPrice": 0.55,
+      "triggeredAt": 1774071857904,
+      "read": false
+    },
+    {
       "id": "alert_1774034366932",
       "symbol": "BTCUSDT",
       "source": "target",
@@ -989,17 +999,7 @@
       "currentPrice": 2351.23,
       "triggeredAt": 1773705382590,
       "read": false
-    },
-    {
-      "id": "alert_1773705382567",
-      "symbol": "BTCUSDT",
-      "source": "target",
-      "type": "above",
-      "targetPrice": 74000,
-      "currentPrice": 74832.3,
-      "triggeredAt": 1773705382567,
-      "read": false
     }
   ],
-  "lastUpdate": "2026-03-20T19:19:26.932Z"
+  "lastUpdate": "2026-03-21T05:44:17.905Z"
 }

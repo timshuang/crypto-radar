@@ -570,7 +570,20 @@ class StorageManager {
    * 检查是否可以发送告警
    */
   canAlert(key) {
-    return this.throttle.canAlert(key);
+    const can = this.throttle.canAlert(key);
+    if (!can) {
+      const silenceUntil = this.throttle.silenceUntil.get(key);
+      const remainingMin = Math.ceil((silenceUntil - Date.now()) / 60000);
+      console.log(`[Storage] canAlert: ${key} 在静默期，剩余 ${remainingMin}分钟`);
+    }
+    return can;
+  }
+
+  /**
+   * 获取静默期结束时间
+   */
+  getSilenceUntil(key) {
+    return this.throttle.silenceUntil.get(key) || 0;
   }
 
   /**
@@ -578,9 +591,14 @@ class StorageManager {
    */
   setAlertSilence(key) {
     this.throttle.setSilence(key);
-    // 持久化
-    this.alertStateStore.set('silenceUntil', this.throttle.toJSON());
-    this.alertStateStore.batchUpdate({ silenceUntil: this.throttle.toJSON() });
+    const silenceUntil = this.throttle.silenceUntil.get(key);
+    const remainingMin = Math.ceil((silenceUntil - Date.now()) / 60000);
+    console.log(`[Storage] setAlertSilence: ${key}, 静默期结束：${new Date(silenceUntil).toLocaleTimeString()}, 剩余：${remainingMin}分钟`);
+    
+    // 立即持久化（不使用 batchUpdate 的延迟）
+    const silenceData = this.throttle.toJSON();
+    this.alertStateStore.set('silenceUntil', silenceData);
+    this.alertStateStore.save();  // 立即保存
   }
 
   /**

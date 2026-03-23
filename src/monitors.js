@@ -302,18 +302,16 @@ class VolatilityMonitor {
       threshold
     );
     
+    // 无论发送成功还是失败，都设置静默期（防止连续轰炸）
+    this.storage.setAlertSilence(volatilityKey);
+    
     if (sent) {
-      // 设置静默期
-      this.storage.setAlertSilence(volatilityKey);
-      
-      // 更新状态并累加阈值
-      this.storage.triggerVolatility(symbol);
-      
-      console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发，阈值累加`);
+      console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发`);
       return true;
     }
     
-    return false;
+    console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发（通知发送失败）`);
+    return true;  // 返回 true 表示已处理，避免重复触发
   }
 
   /**
