@@ -166,14 +166,16 @@ class WSConnector {
 
   /**
    * 连接波动侦测现货（根据模式选择组合流或全量推送）
+   * 注意：波动侦测独立于价格监控，使用所有监控列表币种（不管 enabled 状态）
    */
-  connectVolatilitySpot(symbols) {
+  connectVolatilitySpot(symbols, useAllSymbols = false) {
     if (this.volatilityMode === 'global') {
       // 全量推送模式
       console.log(`[WS] 波动侦测现货全量推送：!miniTicker@arr`);
       this._connect('volatilitySpot', this.spotFullWsUrl, { type: 'spot-full' });
     } else {
       // 监控列表模式（组合流）
+      // 波动侦测使用所有监控列表币种（不管 enabled 状态）
       if (!symbols || symbols.length === 0) {
         console.log('[WS] 波动侦测现货：无订阅币种，跳过连接');
         return;
@@ -182,7 +184,7 @@ class WSConnector {
       const streams = this.buildSpotCombinedStreams(symbols);
       const streamUrl = `${this.spotCombinedWsUrl}?streams=${streams.join('/')}`;
       
-      console.log(`[WS] 波动侦测现货组合流：${symbols.length} 个币种`);
+      console.log(`[WS] 波动侦测现货组合流：${symbols.length} 个币种（独立连接）`);
       console.log(`[WS] 订阅流：${streams.join(', ')}`);
       
       this._connect('volatilitySpot', streamUrl, { type: 'spot-combined', symbols });
@@ -191,8 +193,9 @@ class WSConnector {
 
   /**
    * 连接波动侦测 Alpha（根据模式选择组合流或全量推送）
+   * 注意：波动侦测独立于价格监控，使用所有监控列表币种（不管 enabled 状态）
    */
-  connectVolatilityAlpha(alphaTokens) {
+  connectVolatilityAlpha(alphaTokens, useAllSymbols = false) {
     if (this.volatilityMode === 'global') {
       // 全量推送模式
       console.log(`[WS] 波动侦测 Alpha 全量推送：came@allTokens@ticker24`);
@@ -202,6 +205,7 @@ class WSConnector {
       });
     } else {
       // 监控列表模式（组合流）
+      // 波动侦测使用所有监控列表币种（不管 enabled 状态）
       if (!alphaTokens || alphaTokens.length === 0) {
         console.log('[WS] 波动侦测 Alpha：无订阅币种，跳过连接');
         return;
@@ -210,7 +214,7 @@ class WSConnector {
       const subscriptions = this.buildAlphaSubscriptions(alphaTokens);
       const streamNames = Array.from(subscriptions.values()).map(s => s.streamName);
       
-      console.log(`[WS] 波动侦测 Alpha 组合流：${alphaTokens.length} 个币种`);
+      console.log(`[WS] 波动侦测 Alpha 组合流：${alphaTokens.length} 个币种（独立连接）`);
       console.log(`[WS] 订阅流：${streamNames.join(', ')}`);
       
       this._connect('volatilityAlpha', this.alphaWsUrl, { 

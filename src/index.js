@@ -163,25 +163,13 @@ async function start() {
     console.log(`[Start] 启用币种：${symbols.map(s => s.symbol).join(', ')}`);
     
     // 1. 连接 WebSocket（根据 scope 选择模式）
+    // 核心原则：价格监控和波动侦测是两个完全独立的模块，互不影响
     console.log('[Start] 连接 WebSocket...');
     const allSymbols = app.configManager.config.symbols || [];
     const volatilityConfig = app.configManager.config.volatilityModule || {};
     
-    // 分离现货和 Alpha 币种
+    // ========== 价格监控模块（只看 enabled: true 的币种）==========
     const enabledSymbols = allSymbols.filter(s => s.enabled);
-    const spotSymbols = allSymbols
-      .filter(s => s.source === 'spot')
-      .map(s => s.symbol);
-    
-    const alphaTokens = allSymbols
-      .filter(s => s.source === 'alpha')
-      .map(s => ({
-        symbol: s.symbol,
-        ca: s.ca,
-        alphaId: s.alphaId
-      }));
-    
-    // 1a. 价格监控组合流（enabled: true 的币种）
     const enabledSpotSymbols = enabledSymbols
       .filter(s => s.source === 'spot')
       .map(s => s.symbol);
@@ -194,6 +182,8 @@ async function start() {
         alphaId: s.alphaId
       }));
     
+    console.log(`[Start] 价格监控：${enabledSpotSymbols.length} 现货 + ${enabledAlphaTokens.length} Alpha = ${enabledSymbols.length} 总币种 (enabled: true)`);
+    
     if (enabledSpotSymbols.length > 0) {
       app.wsConnector.connectPriceMonitorSpot(enabledSpotSymbols);
     }
@@ -201,24 +191,37 @@ async function start() {
       app.wsConnector.connectPriceMonitorAlpha(enabledAlphaTokens);
     }
     
-    // 1b. 波动侦测（根据 scope 选择模式）
+    // ========== 波动侦测模块（看所有监控列表币种，不管 enabled 状态）==========
     if (volatilityConfig.enabled) {
       const scope = volatilityConfig.scope || 'added';
       app.wsConnector.setVolatilityMode(scope);
       
+      // 波动侦测使用所有监控列表币种（独立于价格监控）
+      const allSpotSymbols = allSymbols
+        .filter(s => s.source === 'spot')
+        .map(s => s.symbol);
+      
+      const allAlphaTokens = allSymbols
+        .filter(s => s.source === 'alpha')
+        .map(s => ({
+          symbol: s.symbol,
+          ca: s.ca,
+          alphaId: s.alphaId
+        }));
+      
       if (scope === 'global') {
         // 全量推送模式
-        console.log('[Start] 波动侦测：全量推送模式');
+        console.log('[Start] 波动侦测：全量推送模式（独立连接）');
         app.wsConnector.connectVolatilitySpot([]);
         app.wsConnector.connectVolatilityAlpha([]);
       } else {
-        // 监控列表模式（组合流）
-        console.log('[Start] 波动侦测：监控列表组合流模式');
-        if (spotSymbols.length > 0) {
-          app.wsConnector.connectVolatilitySpot(spotSymbols);
+        // 监控列表模式（组合流）- 使用所有币种
+        console.log(`[Start] 波动侦测：监控列表组合流模式（独立连接）：${allSpotSymbols.length} 现货 + ${allAlphaTokens.length} Alpha = ${allSymbols.length} 总币种`);
+        if (allSpotSymbols.length > 0) {
+          app.wsConnector.connectVolatilitySpot(allSpotSymbols);
         }
-        if (alphaTokens.length > 0) {
-          app.wsConnector.connectVolatilityAlpha(alphaTokens);
+        if (allAlphaTokens.length > 0) {
+          app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
         }
       }
     } else {
@@ -339,6 +342,7 @@ async function stop() {
 
 /**
  * 处理配置变更（动态添加币种）
+ * 核心原则：价格监控和波动侦测是两个完全独立的模块，互不影响
  */
 async function handleConfigChange(newConfig) {
   if (!app.isRunning) {
@@ -351,21 +355,8 @@ async function handleConfigChange(newConfig) {
   
   console.log('[ConfigChange] 检测到配置变更，重新连接 WebSocket...');
   
-  // 分离现货和 Alpha 币种
+  // ========== 价格监控模块（只看 enabled: true 的币种）==========
   const enabledSymbols = newSymbols.filter(s => s.enabled);
-  const spotSymbols = newSymbols
-    .filter(s => s.source === 'spot')
-    .map(s => s.symbol);
-  
-  const alphaTokens = newSymbols
-    .filter(s => s.source === 'alpha')
-    .map(s => ({
-      symbol: s.symbol,
-      ca: s.ca,
-      alphaId: s.alphaId
-    }));
-  
-  // 1. 价格监控组合流（enabled: true 的币种）
   const enabledSpotSymbols = enabledSymbols
     .filter(s => s.source === 'spot')
     .map(s => s.symbol);
@@ -378,6 +369,8 @@ async function handleConfigChange(newConfig) {
       alphaId: s.alphaId
     }));
   
+  console.log(`[ConfigChange] 价格监控：${enabledSpotSymbols.length} 现货 + ${enabledAlphaTokens.length} Alpha (enabled: true)`);
+  
   // 重新连接价格监控
   app.wsConnector.disconnect('priceMonitorSpot');
   app.wsConnector.disconnect('priceMonitorAlpha');
@@ -389,10 +382,23 @@ async function handleConfigChange(newConfig) {
     app.wsConnector.connectPriceMonitorAlpha(enabledAlphaTokens);
   }
   
-  // 2. 波动侦测（根据 scope 选择模式）
+  // ========== 波动侦测模块（看所有监控列表币种，不管 enabled 状态）==========
   if (volatilityConfig.enabled) {
     const scope = volatilityConfig.scope || 'added';
     const oldMode = app.wsConnector.volatilityMode;
+    
+    // 波动侦测使用所有监控列表币种（独立于价格监控）
+    const allSpotSymbols = newSymbols
+      .filter(s => s.source === 'spot')
+      .map(s => s.symbol);
+    
+    const allAlphaTokens = newSymbols
+      .filter(s => s.source === 'alpha')
+      .map(s => ({
+        symbol: s.symbol,
+        ca: s.ca,
+        alphaId: s.alphaId
+      }));
     
     if (scope !== oldMode) {
       console.log(`[ConfigChange] 波动模式变更：${oldMode} -> ${scope}`);
@@ -403,16 +409,16 @@ async function handleConfigChange(newConfig) {
       app.wsConnector.disconnect('volatilityAlpha');
       
       if (scope === 'global') {
-        console.log('[ConfigChange] 波动侦测：全量推送模式');
+        console.log('[ConfigChange] 波动侦测：全量推送模式（独立连接）');
         app.wsConnector.connectVolatilitySpot([]);
         app.wsConnector.connectVolatilityAlpha([]);
       } else {
-        console.log('[ConfigChange] 波动侦测：监控列表组合流模式');
-        if (spotSymbols.length > 0) {
-          app.wsConnector.connectVolatilitySpot(spotSymbols);
+        console.log(`[ConfigChange] 波动侦测：监控列表组合流模式（独立连接）：${allSpotSymbols.length} 现货 + ${allAlphaTokens.length} Alpha`);
+        if (allSpotSymbols.length > 0) {
+          app.wsConnector.connectVolatilitySpot(allSpotSymbols);
         }
-        if (alphaTokens.length > 0) {
-          app.wsConnector.connectVolatilityAlpha(alphaTokens);
+        if (allAlphaTokens.length > 0) {
+          app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
         }
       }
     } else {
@@ -424,11 +430,11 @@ async function handleConfigChange(newConfig) {
         app.wsConnector.disconnect('volatilitySpot');
         app.wsConnector.disconnect('volatilityAlpha');
         
-        if (spotSymbols.length > 0) {
-          app.wsConnector.connectVolatilitySpot(spotSymbols);
+        if (allSpotSymbols.length > 0) {
+          app.wsConnector.connectVolatilitySpot(allSpotSymbols);
         }
-        if (alphaTokens.length > 0) {
-          app.wsConnector.connectVolatilityAlpha(alphaTokens);
+        if (allAlphaTokens.length > 0) {
+          app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
         }
       }
     }
