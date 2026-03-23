@@ -197,9 +197,11 @@ class VolatilityEngine {
       for (const symbolConfig of volatilitySymbols) {
         const symbol = symbolConfig.symbol;
         const source = symbolConfig.source;
+        const ca = symbolConfig.ca;
         
-        // 获取最新价格
-        const latestPrice = this.storage.getLatestPrice(symbol);
+        // 获取最新价格（Alpha 使用 ca 作为 key）
+        const priceKey = (source === 'alpha' && ca) ? ca : symbol;
+        const latestPrice = this.storage.getLatestPrice(priceKey);
         
         if (!latestPrice) {
           // 全局模式下，很多币种没有价格数据是正常的
@@ -209,7 +211,7 @@ class VolatilityEngine {
           continue;
         }
         
-        // 检查静默期（使用 storage 的统一方法）
+        // 检查静默期（使用 symbol 作为 key，便于用户理解）
         const volatilityKey = `${symbol}_volatility`;
         if (!this.storage.canAlert(volatilityKey)) {
           const silenceUntil = this.storage.getSilenceUntil(volatilityKey);
@@ -233,7 +235,7 @@ class VolatilityEngine {
           console.log(`[Volatility] ${symbol} 波动检查：window=${volatility.windowMinutes}min, threshold=${volatility.thresholdPercent}%`);
         }
         
-        const volatilityResult = this.volatilityMonitor.check(symbol, volatility);
+        const volatilityResult = this.volatilityMonitor.check(priceKey, volatility);
         
         if (volatilityResult) {
           if (volatilitySymbols.length <= 10 || volatilitySymbols.indexOf(symbolConfig) < 5) {

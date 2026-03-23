@@ -88,17 +88,18 @@ class CheckerEngine {
       
       // 检查价格目标
       for (const symbolConfig of enabledSymbols) {
-        const { symbol, source, targets } = symbolConfig;
+        const { symbol, source, targets, ca } = symbolConfig;
         
-        // 获取最新价格
-        const latestPrice = this.storage.getLatestPrice(symbol);
+        // 获取最新价格（Alpha 使用 ca 作为 key）
+        const priceKey = (source === 'alpha' && ca) ? ca : symbol;
+        const latestPrice = this.storage.getLatestPrice(priceKey);
         
         if (!latestPrice) {
           console.warn(`[Checker] ${symbol} 无价格数据，跳过`);
           continue;
         }
         
-        // 检查价格目标
+        // 检查价格目标（使用 symbol 用于显示）
         const triggeredTargets = this.targetMonitor.check(symbol, latestPrice.price, targets);
         
         for (const target of triggeredTargets) {

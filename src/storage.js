@@ -277,6 +277,10 @@ class StorageManager {
     // 内存中的价格缓冲区（按币种）
     this.priceBuffers = new Map();
     
+    // Alpha 符号映射（symbol -> ca，用于显示）
+    this.symbolMapping = new Map(); // symbol -> ca
+    this.reverseSymbolMapping = new Map(); // ca -> symbol
+    
     // 告警节流器
     this.throttle = new AlertThrottle(5);
     
@@ -301,11 +305,19 @@ class StorageManager {
     
     // 恢复价格历史到内存缓冲区
     const priceData = this.priceHistoryStore.getAll();
-    for (const [symbol, data] of Object.entries(priceData)) {
+    for (const [displaySymbol, data] of Object.entries(priceData)) {
       if (data && Array.isArray(data.records)) {
+        // 如果有 _key 字段，使用它作为内部 key（Alpha 的 ca）
+        const internalKey = data._key || displaySymbol;
+        
         const buffer = new PriceBuffer(this.maxRecords);
         buffer.fromArray(data.records);
-        this.priceBuffers.set(symbol, buffer);
+        this.priceBuffers.set(internalKey, buffer);
+        
+        // 恢复符号映射（如果是 Alpha）
+        if (data._key && data._key !== displaySymbol) {
+          this.setSymbolMapping(displaySymbol, data._key);
+        }
       }
     }
     
@@ -326,26 +338,81 @@ class StorageManager {
   }
 
   /**
-   * 添加价格记录
+   * 设置符号映射（Alpha：symbol -> ca）
    */
-  addPriceRecord(symbol, time, price, volume = 0) {
-    const buffer = this.getPriceBuffer(symbol);
+  setSymbolMapping(symbol, ca) {
+    if (symbol && ca) {
+      this.symbolMapping.set(symbol, ca);
+      this.reverseSymbolMapping.set(ca, symbol);
+    }
+  }
+
+  /**
+   * 获取符号映射
+   */
+  getSymbolForCa(ca) {
+    return this.reverseSymbolMapping.get(ca?.toLowerCase());
+  }
+
+  /**
+   * 获取 Ca 对于符号
+   */
+  getCaForSymbol(symbol) {
+    return this.symbolMapping.get(symbol);
+  }
+
+  /**
+   * 添加价格记录
+   * @param {string} key - 内部使用的 key（现货：symbol，Alpha：ca）
+   * @param {number} time - 时间戳
+   * @param {number} price - 价格
+   * @param {number} volume - 成交量
+   * @param {string} displaySymbol - 显示用的符号名（可选，用于 Alpha）
+   */
+  addPriceRecord(key, time, price, volume = 0, displaySymbol = null) {
+    // 如果是 Alpha 且提供了 displaySymbol，记录映射关系
+    if (displaySymbol && key !== displaySymbol) {
+      this.setSymbolMapping(displaySymbol, key);
+    }
+    
+    const buffer = this.getPriceBuffer(key);
     buffer.push(time, price, volume);
   }
 
   /**
    * 获取最新价格
+   * @param {string} key - 内部使用的 key（现货：symbol，Alpha：ca）
    */
-  getLatestPrice(symbol) {
-    const buffer = this.priceBuffers.get(symbol);
+  getLatestPrice(key) {
+    const buffer = this.priceBuffers.get(key);
     return buffer ? buffer.getLatest() : null;
   }
 
   /**
-   * 获取滑动窗口统计
+   * 获取最新价格（带显示符号）
+   * @param {string} key - 内部使用的 key
+   * @returns {object} - { time, price, volume, symbol }
    */
-  getWindowStats(symbol, windowMinutes) {
-    const buffer = this.priceBuffers.get(symbol);
+  getLatestPriceWithSymbol(key) {
+    const latest = this.getLatestPrice(key);
+    if (!latest) return null;
+    
+    // 如果是 Alpha（key 是 ca），获取显示用的 symbol
+    const displaySymbol = this.getSymbolForCa(key);
+    
+    return {
+      ...latest,
+      symbol: displaySymbol || key
+    };
+  }
+
+  /**
+   * 获取滑动窗口统计
+   * @param {string} key - 内部使用的 key（现货：symbol，Alpha：ca）
+   * @param {number} windowMinutes - 时间窗口（分钟）
+   */
+  getWindowStats(key, windowMinutes) {
+    const buffer = this.priceBuffers.get(key);
     return buffer ? buffer.getWindowStats(windowMinutes) : null;
   }
 
@@ -355,11 +422,15 @@ class StorageManager {
   async persistPriceHistory() {
     const priceData = {};
     
-    for (const [symbol, buffer] of this.priceBuffers.entries()) {
-      priceData[symbol] = {
+    for (const [key, buffer] of this.priceBuffers.entries()) {
+      // 获取显示用的符号（Alpha 使用 symbol，现货使用 symbol）
+      const displaySymbol = this.getSymbolForCa(key) || key;
+      
+      priceData[displaySymbol] = {
         lastUpdate: Date.now(),
         latestPrice: buffer.getLatest()?.price || 0,
-        records: buffer.toArray()
+        records: buffer.toArray(),
+        _key: key !== displaySymbol ? key : undefined // 如果 key 和 symbol 不同，保存 key（用于 Alpha）
       };
     }
     

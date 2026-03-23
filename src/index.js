@@ -162,43 +162,52 @@ async function start() {
     
     console.log(`[Start] 启用币种：${symbols.map(s => s.symbol).join(', ')}`);
     
-    // 1. 连接 WebSocket（价格监控）
+    // 1. 连接 WebSocket（根据模式选择组合流或全量推送）
     console.log('[Start] 连接 WebSocket...');
-    const enabledSymbols = (app.configManager.config.symbols || []).filter(s => s.enabled);
-    const wsConfigs = enabledSymbols.map(s => ({
-      symbol: s.symbol,
-      source: s.source,
-      alphaId: s.alphaId
-    }));
-    
-    // 2. 如果波动侦测启用，添加额外币种
+    const allSymbols = app.configManager.config.symbols || [];
     const volatilityConfig = app.configManager.config.volatilityModule || {};
-    if (volatilityConfig.enabled) {
-      const allSymbols = app.configManager.config.symbols || [];
-      const enabledSymbolSet = new Set(enabledSymbols.map(s => s.symbol));
-      
-      // 添加 enabled: false 但需要波动侦测的币种
-      for (const s of allSymbols) {
-        if (!enabledSymbolSet.has(s.symbol)) {
-          wsConfigs.push({
-            symbol: s.symbol,
-            source: s.source,
-            alphaId: s.alphaId
-          });
-        }
+    
+    // 分离现货和 Alpha 币种
+    const spotSymbols = allSymbols
+      .filter(s => s.source === 'spot')
+      .map(s => s.symbol);
+    
+    const alphaTokens = allSymbols
+      .filter(s => s.source === 'alpha')
+      .map(s => ({
+        symbol: s.symbol,
+        ca: s.ca,
+        alphaId: s.alphaId
+      }));
+    
+    // 设置连接模式
+    const wsMode = volatilityConfig.enabled ? 'fullScan' : 'monitorList';
+    app.wsConnector.setMode(wsMode);
+    
+    if (wsMode === 'fullScan') {
+      // 全量推送模式
+      console.log('[Start] 使用全量推送模式');
+      app.wsConnector.connectSpotFull();
+      app.wsConnector.connectAlphaFull();
+    } else {
+      // 组合流模式（监控列表）
+      console.log('[Start] 使用组合流模式');
+      if (spotSymbols.length > 0) {
+        app.wsConnector.connectSpotCombined(spotSymbols);
+      }
+      if (alphaTokens.length > 0) {
+        app.wsConnector.connectAlphaCombined(alphaTokens);
       }
     }
     
-    app.wsConnector.connectMultiple(wsConfigs);
-    
     // 等待 WS 连接建立（最多 10 秒）
     console.log('[Start] 等待 WebSocket 连接建立...');
-    await waitForConnections(app.wsConnector, wsConfigs.length, 10000);
+    await sleep(3000); // 等待连接建立
     
     // 2. 初始化波动监控状态（波动侦测独立于价格监控，初始化所有币种）
     console.log('[Start] 初始化波动监控...');
-    const allSymbols = app.configManager.config.symbols || [];
-    allSymbols.forEach(s => {
+    const configSymbols = app.configManager.config.symbols || [];
+    configSymbols.forEach(s => {
       app.volatilityMonitor.init(s.symbol, s.volatility);
     });
     
@@ -241,7 +250,9 @@ async function start() {
     console.log('\n' + '='.repeat(60));
     console.log('✅ 应用启动成功！');
     const wsStats = app.wsConnector?.getStats() || {};
-    console.log(`WebSocket 连接：${Object.keys(wsStats).length} 个`);
+    console.log(`WS 模式：${wsStats.mode || 'N/A'}`);
+    console.log(`现货连接：${wsStats.spot?.connected ? '✅' : '❌'} (${wsStats.spot?.symbolsCount || 0} 个币种)`);
+    console.log(`Alpha 连接：${wsStats.alpha?.connected ? '✅' : '❌'} (${wsStats.alpha?.subscriptionsCount || 0} 个订阅)`);
     console.log(`价格监控币种：${enabledSymbols.length} 个 (enabled: true)`);
     console.log(`检查间隔：${settings.checkIntervalMinutes} 分钟`);
     console.log(`静默期：${settings.alertSilenceMinutes} 分钟`);
@@ -306,50 +317,52 @@ async function handleConfigChange(newConfig) {
   }
   
   const newSymbols = newConfig.symbols || [];
-  const connectedSymbols = new Set(app.wsConnector?.getStats ? Object.keys(app.wsConnector.getStats()) : []);
-  
-  // 1. 找出新增的 enabled 币种（价格监控）
-  const enabledSymbolsToAdd = newSymbols.filter(s => 
-    s.enabled && !connectedSymbols.has(s.symbol.toUpperCase())
-  );
-  
-  // 2. 如果波动侦测启用，添加所有未连接的币种
   const volatilityConfig = newConfig.volatilityModule || {};
-  let allSymbolsToAdd = [...enabledSymbolsToAdd];
   
-  if (volatilityConfig.enabled) {
-    const disabledSymbolsToAdd = newSymbols.filter(s => 
-      !s.enabled && !connectedSymbols.has(s.symbol.toUpperCase())
-    );
-    allSymbolsToAdd = [...enabledSymbolsToAdd, ...disabledSymbolsToAdd];
+  console.log('[ConfigChange] 检测到配置变更，重新连接 WebSocket...');
+  
+  // 分离现货和 Alpha 币种
+  const spotSymbols = newSymbols
+    .filter(s => s.source === 'spot')
+    .map(s => s.symbol);
+  
+  const alphaTokens = newSymbols
+    .filter(s => s.source === 'alpha')
+    .map(s => ({
+      symbol: s.symbol,
+      ca: s.ca,
+      alphaId: s.alphaId
+    }));
+  
+  // 根据波动侦测状态决定模式
+  const wsMode = volatilityConfig.enabled ? 'fullScan' : 'monitorList';
+  app.wsConnector.setMode(wsMode);
+  
+  // 重新连接（ws-connector 会自动清理旧连接）
+  if (wsMode === 'fullScan') {
+    console.log('[ConfigChange] 全量推送模式');
+    app.wsConnector.connectSpotFull();
+    app.wsConnector.connectAlphaFull();
+  } else {
+    console.log('[ConfigChange] 组合流模式');
+    if (spotSymbols.length > 0) {
+      app.wsConnector.connectSpotCombined(spotSymbols);
+    }
+    if (alphaTokens.length > 0) {
+      app.wsConnector.connectAlphaCombined(alphaTokens);
+    }
   }
   
-  if (allSymbolsToAdd.length === 0) {
-    console.log('[ConfigChange] 没有新增的币种连接');
-    return;
-  }
-  
-  console.log(`[ConfigChange] 发现 ${allSymbolsToAdd.length} 个新增币种：${allSymbolsToAdd.map(s => s.symbol).join(', ')}`);
-  
-  // 为新增币种建立 WebSocket 连接
-  const wsConfigs = allSymbolsToAdd.map(s => ({
-    symbol: s.symbol,
-    source: s.source,
-    alphaId: s.alphaId
-  }));
-  
-  app.wsConnector?.connectMultiple(wsConfigs);
-  
-  // 为新增币种初始化波动监控
-  allSymbolsToAdd.forEach(s => {
+  // 为所有币种初始化波动监控
+  newSymbols.forEach(s => {
     app.volatilityMonitor?.init(s.symbol, s.volatility);
   });
   
   // 等待连接建立
   console.log('[ConfigChange] 等待 WebSocket 连接建立...');
-  await waitForConnections(app.wsConnector, connectedSymbols.size + allSymbolsToAdd.length, 10000);
+  await sleep(3000);
   
-  console.log('[ConfigChange] 新增币种连接完成 ✓');
+  console.log('[ConfigChange] 配置变更处理完成 ✓');
 }
 
 /**
@@ -362,7 +375,9 @@ function printStatus() {
   
   console.log('\n--- 系统状态 ---');
   console.log(`运行状态：${app.isRunning ? '运行中' : '已停止'}`);
-  console.log(`WS 连接：${Object.keys(wsStats).length} 个`);
+  console.log(`WS 模式：${wsStats.mode || 'N/A'}`);
+  console.log(`现货连接：${wsStats.spot?.connected ? '✅' : '❌'} (币种：${wsStats.spot?.symbolsCount || 0})`);
+  console.log(`Alpha 连接：${wsStats.alpha?.connected ? '✅' : '❌'} (订阅：${wsStats.alpha?.subscriptionsCount || 0})`);
   console.log(`检查次数：${checkerStats.checkCount}`);
   console.log(`内存使用：${monitorStats.memory?.heapUsed?.toFixed(2) || 'N/A'}MB`);
   console.log(`运行时长：${formatUptime(monitorStats.uptime || 0)}`);
