@@ -166,65 +166,7 @@ class AlertThrottle {
   }
 }
 
-/**
- * 阶梯阈值管理器 - 波动侦测的阈值累加
- */
-class StepThreshold {
-  constructor(baseThreshold, stepIncrement) {
-    this.baseThreshold = baseThreshold;
-    this.stepIncrement = stepIncrement;
-    this.currentThreshold = baseThreshold;
-    this.triggerCount = 0;
-  }
 
-  /**
-   * 触发后累加阈值
-   */
-  trigger() {
-    this.triggerCount++;
-    this.currentThreshold = this.baseThreshold + 
-      (this.stepIncrement * (this.triggerCount - 1));
-  }
-
-  /**
-   * 重置阈值
-   */
-  reset() {
-    this.currentThreshold = this.baseThreshold;
-    this.triggerCount = 0;
-  }
-
-  /**
-   * 获取当前阈值
-   */
-  getCurrent() {
-    return this.currentThreshold;
-  }
-
-  /**
-   * 持久化为 JSON
-   */
-  toJSON() {
-    return {
-      baseThreshold: this.baseThreshold,
-      stepIncrement: this.stepIncrement,
-      currentThreshold: this.currentThreshold,
-      triggerCount: this.triggerCount
-    };
-  }
-
-  /**
-   * 从 JSON 恢复
-   */
-  fromJSON(data) {
-    if (data) {
-      this.baseThreshold = data.baseThreshold;
-      this.stepIncrement = data.stepIncrement;
-      this.currentThreshold = data.currentThreshold;
-      this.triggerCount = data.triggerCount;
-    }
-  }
-}
 
 /**
  * JSON 存储管理器 - 原子写入和备份
@@ -337,9 +279,6 @@ class StorageManager {
     
     // 告警节流器
     this.throttle = new AlertThrottle(5);
-    
-    // 阶梯阈值（按币种）
-    this.stepThresholds = new Map();
     
     // 报警历史（内存缓存）
     this.alertHistory = [];
@@ -509,36 +448,23 @@ class StorageManager {
   /**
    * 更新波动状态
    */
-  updateVolatilityState(symbol, enabled, threshold, stepIncrement) {
+  updateVolatilityState(symbol, enabled, threshold) {
     const volatility = this.alertStateStore.get('volatility', {});
     
     let state = volatility[symbol];
     if (!state) {
       state = {
         enabled,
-        currentThreshold: threshold,
         lastTriggeredAt: null,
-        lastAlertAt: null,
-        triggerCount: 0
+        lastAlertAt: null
       };
     }
     
     state.enabled = enabled;
-    state.currentThreshold = threshold;
     
     volatility[symbol] = state;
     this.alertStateStore.set('volatility', volatility);
     this.alertStateStore.batchUpdate({ volatility, lastUpdate: new Date().toISOString() });
-    
-    // 更新阶梯阈值
-    if (!this.stepThresholds.has(symbol)) {
-      const stepThreshold = new StepThreshold(threshold, stepIncrement);
-      if (state.triggerCount > 0) {
-        stepThreshold.triggerCount = state.triggerCount;
-        stepThreshold.currentThreshold = state.currentThreshold;
-      }
-      this.stepThresholds.set(symbol, stepThreshold);
-    }
   }
 
   /**
@@ -552,17 +478,10 @@ class StorageManager {
       const now = Date.now();
       state.lastTriggeredAt = now;
       state.lastAlertAt = now;
-      state.triggerCount = (state.triggerCount || 0) + 1;
       
       volatility[symbol] = state;
       this.alertStateStore.set('volatility', volatility);
       this.alertStateStore.batchUpdate({ volatility, lastUpdate: new Date().toISOString() });
-      
-      // 累加阶梯阈值
-      const stepThreshold = this.stepThresholds.get(symbol);
-      if (stepThreshold) {
-        stepThreshold.trigger();
-      }
     }
   }
 
@@ -599,32 +518,6 @@ class StorageManager {
     const silenceData = this.throttle.toJSON();
     this.alertStateStore.set('silenceUntil', silenceData);
     this.alertStateStore.save();  // 立即保存
-  }
-
-  /**
-   * 获取阶梯阈值
-   */
-  getStepThreshold(symbol) {
-    const stepThreshold = this.stepThresholds.get(symbol);
-    return stepThreshold ? stepThreshold.getCurrent() : null;
-  }
-
-  /**
-   * 重置阶梯阈值
-   */
-  resetStepThreshold(symbol) {
-    const stepThreshold = this.stepThresholds.get(symbol);
-    if (stepThreshold) {
-      stepThreshold.reset();
-      
-      const volatility = this.alertStateStore.get('volatility', {});
-      if (volatility[symbol]) {
-        volatility[symbol].currentThreshold = stepThreshold.baseThreshold;
-        volatility[symbol].triggerCount = 0;
-        this.alertStateStore.set('volatility', volatility);
-        this.alertStateStore.batchUpdate({ volatility, lastUpdate: new Date().toISOString() });
-      }
-    }
   }
 
   /**

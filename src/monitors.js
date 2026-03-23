@@ -229,7 +229,7 @@ class TargetMonitor {
  * - 触发条件：(最高价 - 最低价) / 最低价 >= 阈值%
  * - 检测窗口：滑动窗口，每 1 分钟检查过去 N 分钟的数据
  * - 持续性监控：不会自动完成，持续检测
- * - 阶梯阈值：首次触发后，后续触发需要更高阈值
+ * - 静默期管理：触发后 5 分钟内不重复通知
  */
 class VolatilityMonitor {
   constructor(storage, alertService) {
@@ -245,7 +245,7 @@ class VolatilityMonitor {
       return null;
     }
     
-    const { windowMinutes, thresholdPercent, stepThreshold } = config;
+    const { windowMinutes, thresholdPercent } = config;
     
     // 获取滑动窗口统计
     const stats = this.storage.getWindowStats(symbol, windowMinutes);
@@ -257,7 +257,7 @@ class VolatilityMonitor {
     // 计算波动率
     const volatility = ((stats.max - stats.min) / stats.min) * 100;
     
-    // 使用传入的阈值（不再读取阶梯阈值）
+    // 使用全局阈值
     const currentThreshold = thresholdPercent;
     
     // 检查是否触发
@@ -317,13 +317,12 @@ class VolatilityMonitor {
       return;
     }
     
-    const { thresholdPercent, stepThreshold } = config;
+    const { thresholdPercent } = config;
     
     this.storage.updateVolatilityState(
       symbol,
       true,
-      thresholdPercent,
-      stepThreshold
+      thresholdPercent
     );
     
     console.log(`[Volatility] ${symbol} 监控已初始化，阈值 ${thresholdPercent}%`);

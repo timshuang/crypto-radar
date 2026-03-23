@@ -191,8 +191,7 @@ class ConfigManager extends EventEmitter {
           volatility: {
             enabled: true,
             windowMinutes: 60,
-            thresholdPercent: 2.0,
-            stepThreshold: 0.5
+            thresholdPercent: 2.0
           }
         }
       ],

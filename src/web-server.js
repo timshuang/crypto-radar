@@ -814,8 +814,7 @@ class WebServer extends EventEmitter {
       volatility: {
         enabled: true,
         windowMinutes: 5,
-        thresholdPercent: 20,
-        stepThreshold: 0.5
+        thresholdPercent: 20
       }
     };
 
@@ -1199,9 +1198,6 @@ class WebServer extends EventEmitter {
     if (data.thresholdPercent !== undefined) {
       config.volatilityThresholdPercent = parseFloat(data.thresholdPercent);
     }
-    if (data.stepThreshold !== undefined) {
-      config.volatilityStepThreshold = parseFloat(data.stepThreshold);
-    }
 
     // 更新所有币种的波动配置（用于 added 模式）
     if (config.symbols && Array.isArray(config.symbols)) {
@@ -1215,9 +1211,6 @@ class WebServer extends EventEmitter {
         }
         if (data.thresholdPercent !== undefined) {
           symbol.volatility.thresholdPercent = parseFloat(data.thresholdPercent);
-        }
-        if (data.stepThreshold !== undefined) {
-          symbol.volatility.stepThreshold = parseFloat(data.stepThreshold);
         }
       }
     }

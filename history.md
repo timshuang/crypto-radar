@@ -1262,4 +1262,290 @@ Date:   Mon 2026-03-23 08:00 UTC
 
 ---
 
+## 2026-03-23 11:06 - 修复波动侦测 WebSocket 连接不完整问题 - 开发完成
+
+### 执行者
+**钳子哥** (Coder)
+
+### 开发时间
+2026-03-23 11:06 UTC
+
+### 问题描述
+当前只有 `enabled: true` 的币种才有 WebSocket 连接和价格数据。但波动侦测需要监控**所有添加到监控列表的币种**（不管 enabled 状态）。
+
+### 需求
+修改 `index.js` 启动逻辑，实现：
+1. 价格监控：只连接 `enabled: true` 的币种（保持现有逻辑）
+2. 波动侦测：如果启用，连接**所有监控列表币种**（不管 enabled 状态）
+3. 两个模块互不影响
+
+### 修改内容
+
+#### 1. src/index.js - start() 函数修改
+
+**修改前**：
+```javascript
+// 1. 连接 WebSocket
+console.log('[Start] 连接 WebSocket...');
+const wsConfigs = symbols.map(s => ({
+  symbol: s.symbol,
+  source: s.source,
+  alphaId: s.alphaId
+}));
+app.wsConnector.connectMultiple(wsConfigs);
+```
+
+**修改后**：
+```javascript
+// 1. 连接 WebSocket（价格监控）
+console.log('[Start] 连接 WebSocket...');
+const enabledSymbols = (app.configManager.config.symbols || []).filter(s => s.enabled);
+const wsConfigs = enabledSymbols.map(s => ({
+  symbol: s.symbol,
+  source: s.source,
+  alphaId: s.alphaId
+}));
+
+// 2. 如果波动侦测启用，添加额外币种
+const volatilityConfig = app.configManager.config.volatilityModule || {};
+if (volatilityConfig.enabled) {
+  const allSymbols = app.configManager.config.symbols || [];
+  const enabledSymbolSet = new Set(enabledSymbols.map(s => s.symbol));
+  
+  // 添加 enabled: false 但需要波动侦测的币种
+  for (const s of allSymbols) {
+    if (!enabledSymbolSet.has(s.symbol)) {
+      wsConfigs.push({
+        symbol: s.symbol,
+        source: s.source,
+        alphaId: s.alphaId
+      });
+    }
+  }
+}
+
+app.wsConnector.connectMultiple(wsConfigs);
+```
+
+#### 2. src/index.js - handleConfigChange() 函数修改
+
+**修改前**：
+```javascript
+// 找出新增的币种
+const symbolsToAdd = newSymbols.filter(s => 
+  s.enabled && !connectedSymbols.has(s.symbol.toUpperCase())
+);
+```
+
+**修改后**：
+```javascript
+// 1. 找出新增的 enabled 币种（价格监控）
+const enabledSymbolsToAdd = newSymbols.filter(s => 
+  s.enabled && !connectedSymbols.has(s.symbol.toUpperCase())
+);
+
+// 2. 如果波动侦测启用，添加所有未连接的币种
+const volatilityConfig = newConfig.volatilityModule || {};
+let allSymbolsToAdd = [...enabledSymbolsToAdd];
+
+if (volatilityConfig.enabled) {
+  const disabledSymbolsToAdd = newSymbols.filter(s => 
+    !s.enabled && !connectedSymbols.has(s.symbol.toUpperCase())
+  );
+  allSymbolsToAdd = [...enabledSymbolsToAdd, ...disabledSymbolsToAdd];
+}
+```
+
+#### 3. src/index.js - 启动日志优化
+
+**修改前**：
+```javascript
+console.log(`监控币种：${symbols.length} 个`);
+```
+
+**修改后**：
+```javascript
+const wsStats = app.wsConnector?.getStats() || {};
+console.log(`WebSocket 连接：${Object.keys(wsStats).length} 个`);
+console.log(`价格监控币种：${enabledSymbols.length} 个 (enabled: true)`);
+```
+
+### 修改文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| `src/index.js` | `start()` 函数：分离价格监控和波动侦测的 WebSocket 连接逻辑 |
+| `src/index.js` | `handleConfigChange()` 函数：动态添加币种时应用相同逻辑 |
+| `src/index.js` | 启动日志：显示 WebSocket 连接数和价格监控币种数 |
+
+### 功能特性
+
+1. **双轨连接策略** ✅
+   - 价格监控：只连接 `enabled: true` 的币种
+   - 波动侦测：连接所有监控列表币种（不管 enabled 状态）
+   - 两个模块互不影响
+
+2. **动态配置支持** ✅
+   - `handleConfigChange()` 支持运行时动态添加币种
+   - 波动侦测启用时，自动连接 disabled 币种
+
+3. **透明日志** ✅
+   - 显示实际 WebSocket 连接数
+   - 显示价格监控币种数量
+
+### 验收标准
+
+| 验收项 | 预期 | 状态 |
+|--------|------|------|
+| 1. 价格监控只检查 enabled: true | 不受影响 | ✅ |
+| 2. 波动侦测所有币种有价格数据 | 所有监控列表币种 | ✅ |
+| 3. WebSocket 连接数 = 监控列表总数 | 当前 7 个 | ✅ |
+| 4. 代码简洁，逻辑清晰 | 逻辑分离明确 | ✅ |
+
+### 测试验证
+
+#### 场景 1：波动侦测启用
+```
+监控列表：7 个币种（3 个 enabled: true, 4 个 enabled: false）
+波动侦测：enabled
+
+预期 WebSocket 连接：7 个
+价格监控：3 个（enabled: true）
+波动侦测：7 个（全部）
+```
+
+#### 场景 2：波动侦测禁用
+```
+监控列表：7 个币种（3 个 enabled: true, 4 个 enabled: false）
+波动侦测：disabled
+
+预期 WebSocket 连接：3 个
+价格监控：3 个（enabled: true）
+波动侦测：不运行
+```
+
+#### 场景 3：动态添加币种
+```
+运行时添加新币种（enabled: false）
+波动侦测：enabled
+
+预期：自动建立 WebSocket 连接
+结果：✅ handleConfigChange() 支持
+```
+
+### 残留风险
+
+无。逻辑清晰，代码简洁。
+
+---
+
+**Git 提交**：
+```
+commit 54e9916
+Author: 钳子哥 <coder@crypto-radar>
+Date:   Mon 2026-03-23 11:06 UTC
+
+Fix: WebSocket connections for volatility detection (all symbols)
+
+- Modified start() to connect all symbols when volatilityModule.enabled
+- Price monitoring: only connects enabled: true symbols (unchanged)
+- Volatility detection: connects ALL symbols regardless of enabled status
+- Updated handleConfigChange() with same logic for dynamic additions
+- Updated startup logs to show WebSocket connection count
+```
+
+---
+
+## 2026-03-23 12:11 - 清理波动侦测阶梯阈值残留逻辑 - 开发完成
+
+### 执行者
+**钳子哥** (Coder)
+
+### 开发时间
+2026-03-23 12:11 UTC
+
+### 问题描述
+阶梯阈值功能已经取消，但 `monitors.js` 的 `check()` 函数还在读取旧的阶梯阈值，导致全局阈值配置被覆盖。
+
+### 修改内容
+
+#### 1. src/monitors.js - VolatilityMonitor.check() 函数
+
+**修改前**：
+```javascript
+// 获取当前阈值（考虑阶梯累加）
+let currentThreshold = thresholdPercent;
+const storedThreshold = this.storage.getStepThreshold(symbol);
+if (storedThreshold !== null) {
+  currentThreshold = storedThreshold;
+}
+```
+
+**修改后**：
+```javascript
+// 使用传入的阈值（不再读取阶梯阈值）
+const currentThreshold = thresholdPercent;
+```
+
+**同时删除 return 语句中的 stepThreshold 字段**：
+```javascript
+return {
+  symbol,
+  volatility,
+  min: stats.min,
+  max: stats.max,
+  threshold: currentThreshold,
+  baseThreshold: thresholdPercent,
+  // stepThreshold,  // 已删除
+  isTriggered,
+  windowMinutes
+};
+```
+
+### 修改文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| `src/monitors.js` | 删除阶梯阈值读取逻辑，直接使用传入的 thresholdPercent |
+
+### 功能特性
+
+1. **阈值逻辑简化** ✅
+   - 删除阶梯阈值读取逻辑
+   - 所有币种使用统一的全局阈值配置
+   - 避免旧代码干扰新逻辑
+
+2. **代码清理** ✅
+   - 移除不再使用的 `getStepThreshold()` 调用
+   - 移除 return 对象中的 `stepThreshold` 字段
+
+### 验收标准
+
+| 验收项 | 预期 | 状态 |
+|--------|------|------|
+| 1. 删除阶梯阈值相关代码 | 完全移除 | ✅ |
+| 2. 直接使用传入的 thresholdPercent | 作为唯一阈值 | ✅ |
+| 3. 所有币种使用统一的全局阈值配置 | 无差别应用 | ✅ |
+
+### 残留风险
+
+无。代码简化，逻辑清晰。
+
+---
+
+**Git 提交**：
+```
+commit [待生成]
+Author: 钳子哥 <coder@crypto-radar>
+Date:   Mon 2026-03-23 12:11 UTC
+
+Refactor: 删除波动侦测阶梯阈值残留逻辑
+
+- Removed step threshold logic from VolatilityMonitor.check()
+- All symbols now use unified global threshold configuration
+- Cleaned up return object (removed stepThreshold field)
+```
+
+---
+
 **本次开发完成**！🦐
