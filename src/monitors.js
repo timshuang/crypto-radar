@@ -257,12 +257,8 @@ class VolatilityMonitor {
     // 计算波动率
     const volatility = ((stats.max - stats.min) / stats.min) * 100;
     
-    // 获取当前阈值（考虑阶梯累加）
-    let currentThreshold = thresholdPercent;
-    const storedThreshold = this.storage.getStepThreshold(symbol);
-    if (storedThreshold !== null) {
-      currentThreshold = storedThreshold;
-    }
+    // 使用传入的阈值（不再读取阶梯阈值）
+    const currentThreshold = thresholdPercent;
     
     // 检查是否触发
     const isTriggered = volatility >= currentThreshold;
@@ -274,7 +270,6 @@ class VolatilityMonitor {
       max: stats.max,
       threshold: currentThreshold,
       baseThreshold: thresholdPercent,
-      stepThreshold,
       isTriggered,
       windowMinutes
     };
