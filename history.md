@@ -1535,7 +1535,7 @@ return {
 
 **Git 提交**：
 ```
-commit [待生成]
+commit e51404d
 Author: 钳子哥 <coder@crypto-radar>
 Date:   Mon 2026-03-23 12:11 UTC
 
@@ -1544,6 +1544,241 @@ Refactor: 删除波动侦测阶梯阈值残留逻辑
 - Removed step threshold logic from VolatilityMonitor.check()
 - All symbols now use unified global threshold configuration
 - Cleaned up return object (removed stepThreshold field)
+```
+
+---
+
+## 2026-03-23 12:20 - 全面清理阶梯阈值残留逻辑 - 开发完成
+
+### 执行者
+**钳子哥** (Coder)
+
+### 开发时间
+2026-03-23 12:20 UTC
+
+### 问题描述
+老板要求全面清查并清理所有涉及阶梯阈值的代码。虽然 `monitors.js` 的 `check()` 函数已清理，但其他文件仍有残留逻辑。
+
+### 修改内容
+
+#### 1. src/storage.js - 删除 StepThreshold 类和所有相关方法
+
+**删除 StepThreshold 类**（约 60 行代码）：
+- 完整的类定义（constructor, trigger, reset, getCurrent, toJSON, fromJSON）
+- 不再需要阈值累加逻辑
+
+**删除 stepThresholds Map**：
+```javascript
+// 已删除
+this.stepThresholds = new Map();
+```
+
+**简化 updateVolatilityState() 函数**：
+```javascript
+// 修改前
+updateVolatilityState(symbol, enabled, threshold, stepIncrement) {
+  // ...
+  // 更新阶梯阈值
+  if (!this.stepThresholds.has(symbol)) {
+    const stepThreshold = new StepThreshold(threshold, stepIncrement);
+    // ...
+  }
+}
+
+// 修改后
+updateVolatilityState(symbol, enabled, threshold) {
+  // 只更新状态，不再管理阶梯阈值
+  state.enabled = enabled;
+  // 删除 currentThreshold 和 triggerCount 字段
+}
+```
+
+**简化 triggerVolatility() 函数**：
+```javascript
+// 修改前
+triggerVolatility(symbol) {
+  // ...
+  state.triggerCount = (state.triggerCount || 0) + 1;
+  // 累加阶梯阈值
+  const stepThreshold = this.stepThresholds.get(symbol);
+  if (stepThreshold) {
+    stepThreshold.trigger();
+  }
+}
+
+// 修改后
+triggerVolatility(symbol) {
+  // ...
+  // 删除 triggerCount 递增
+  // 删除阶梯阈值累加逻辑
+}
+```
+
+**删除方法**：
+- `getStepThreshold(symbol)` - 获取阶梯阈值
+- `resetStepThreshold(symbol)` - 重置阶梯阈值
+
+**清理 alert_state.json 持久化字段**：
+- 删除 `currentThreshold` 字段（不再保存每个币种的当前阈值）
+- 删除 `triggerCount` 字段（不再保存触发次数）
+
+#### 2. src/config.js - 删除默认配置中的 stepThreshold
+
+```javascript
+// 修改前
+volatility: {
+  enabled: true,
+  windowMinutes: 60,
+  thresholdPercent: 2.0,
+  stepThreshold: 0.5  // 已删除
+}
+
+// 修改后
+volatility: {
+  enabled: true,
+  windowMinutes: 60,
+  thresholdPercent: 2.0
+}
+```
+
+#### 3. src/web-server.js - 删除 stepThreshold 处理逻辑
+
+**删除默认 symbol 配置中的 stepThreshold**：
+```javascript
+volatility: {
+  enabled: true,
+  windowMinutes: 5,
+  thresholdPercent: 20
+  // stepThreshold: 0.5  // 已删除
+}
+```
+
+**删除 _updateVolatilitySettings() 中的 stepThreshold 处理**：
+```javascript
+// 已删除
+if (data.stepThreshold !== undefined) {
+  config.volatilityStepThreshold = parseFloat(data.stepThreshold);
+}
+
+// 已删除
+if (data.stepThreshold !== undefined) {
+  symbol.volatility.stepThreshold = parseFloat(data.stepThreshold);
+}
+```
+
+#### 4. src/monitors.js - 更新注释
+
+```javascript
+// 修改前
+// 使用传入的阈值（不再读取阶梯阈值）
+const currentThreshold = thresholdPercent;
+
+// 修改后
+// 使用全局阈值
+const currentThreshold = thresholdPercent;
+```
+
+**清理 init() 函数**：
+```javascript
+// 修改前
+const { thresholdPercent, stepThreshold } = config;
+this.storage.updateVolatilityState(symbol, true, thresholdPercent, stepThreshold);
+
+// 修改后
+const { thresholdPercent } = config;
+this.storage.updateVolatilityState(symbol, true, thresholdPercent);
+```
+
+#### 5. src/index.js - 更新文件头注释
+
+```javascript
+// 修改前
+ * - 告警抑制（5 分钟静默期 + 阶梯阈值）
+
+// 修改后
+ * - 告警抑制（5 分钟静默期）
+```
+
+### 修改文件清单
+
+| 文件 | 修改内容 | 删除行数 |
+|------|----------|---------|
+| `src/storage.js` | 删除 StepThreshold 类、stepThresholds Map、相关方法 | ~80 行 |
+| `src/config.js` | 删除默认配置中的 stepThreshold 字段 | 1 行 |
+| `src/web-server.js` | 删除 stepThreshold 处理逻辑 | 10 行 |
+| `src/monitors.js` | 更新注释，简化 init() 函数 | 3 行 |
+| `src/index.js` | 更新文件头注释 | 1 行 |
+| `history.md` | 记录本次清理 | - |
+
+### 功能特性
+
+1. **彻底清理** ✅
+   - 删除所有阶梯阈值相关代码
+   - 删除所有相关持久化逻辑
+   - 删除所有相关配置字段
+
+2. **阈值逻辑统一** ✅
+   - 所有币种使用统一的全局阈值配置
+   - 不再有 per-symbol 的阈值累加
+   - 只使用静默期（5 分钟）防止重复通知
+
+3. **代码简化** ✅
+   - 删除 ~95 行代码
+   - 删除 2 个公共方法
+   - 删除 1 个内部类
+
+### 验收标准
+
+| 验收项 | 预期 | 状态 |
+|--------|------|------|
+| 1. 删除 StepThreshold 类 | 完全移除 | ✅ |
+| 2. 删除 stepThresholds Map | 完全移除 | ✅ |
+| 3. 删除 getStepThreshold() 方法 | 完全移除 | ✅ |
+| 4. 删除 resetStepThreshold() 方法 | 完全移除 | ✅ |
+| 5. 清理 alert_state.json 持久化字段 | 删除 currentThreshold/triggerCount | ✅ |
+| 6. 删除配置中的 stepThreshold 字段 | config.js, web-server.js | ✅ |
+| 7. 所有币种使用统一阈值 | volatilityModule.thresholdPercent | ✅ |
+
+### 残留风险
+
+无。代码已彻底清理。
+
+### 重启服务
+
+**需要重启服务以应用更改**：
+```bash
+# 停止服务
+pm2 stop crypto_radar
+
+# 重启服务
+pm2 restart crypto_radar
+
+# 查看日志
+pm2 logs crypto_radar
+```
+
+---
+
+**Git 提交**：
+```
+commit 355595e
+Author: 钳子哥 <coder@crypto-radar>
+Date:   Mon 2026-03-23 12:20 UTC
+
+Refactor: 全面清理阶梯阈值残留逻辑
+
+Removed all step threshold related code:
+- Deleted StepThreshold class from storage.js
+- Removed stepThresholds Map from Storage constructor
+- Removed getStepThreshold() and resetStepThreshold() methods
+- Cleaned up updateVolatilityState() and triggerVolatility() functions
+- Removed currentThreshold and triggerCount from volatility state persistence
+- Removed stepThreshold from default configs (config.js, web-server.js)
+- Removed stepThreshold handling from _updateVolatilitySettings()
+- Updated comments in index.js and monitors.js
+
+All symbols now use unified global threshold configuration.
+No more threshold accumulation logic.
 ```
 
 ---
