@@ -162,18 +162,38 @@ async function start() {
     
     console.log(`[Start] 启用币种：${symbols.map(s => s.symbol).join(', ')}`);
     
-    // 1. 连接 WebSocket
+    // 1. 连接 WebSocket（价格监控）
     console.log('[Start] 连接 WebSocket...');
-    const wsConfigs = symbols.map(s => ({
+    const enabledSymbols = (app.configManager.config.symbols || []).filter(s => s.enabled);
+    const wsConfigs = enabledSymbols.map(s => ({
       symbol: s.symbol,
       source: s.source,
       alphaId: s.alphaId
     }));
+    
+    // 2. 如果波动侦测启用，添加额外币种
+    const volatilityConfig = app.configManager.config.volatilityModule || {};
+    if (volatilityConfig.enabled) {
+      const allSymbols = app.configManager.config.symbols || [];
+      const enabledSymbolSet = new Set(enabledSymbols.map(s => s.symbol));
+      
+      // 添加 enabled: false 但需要波动侦测的币种
+      for (const s of allSymbols) {
+        if (!enabledSymbolSet.has(s.symbol)) {
+          wsConfigs.push({
+            symbol: s.symbol,
+            source: s.source,
+            alphaId: s.alphaId
+          });
+        }
+      }
+    }
+    
     app.wsConnector.connectMultiple(wsConfigs);
     
     // 等待 WS 连接建立（最多 10 秒）
     console.log('[Start] 等待 WebSocket 连接建立...');
-    await waitForConnections(app.wsConnector, symbols.length, 10000);
+    await waitForConnections(app.wsConnector, wsConfigs.length, 10000);
     
     // 2. 初始化波动监控状态（波动侦测独立于价格监控，初始化所有币种）
     console.log('[Start] 初始化波动监控...');
@@ -221,7 +241,9 @@ async function start() {
     
     console.log('\n' + '='.repeat(60));
     console.log('✅ 应用启动成功！');
-    console.log(`监控币种：${symbols.length} 个`);
+    const wsStats = app.wsConnector?.getStats() || {};
+    console.log(`WebSocket 连接：${Object.keys(wsStats).length} 个`);
+    console.log(`价格监控币种：${enabledSymbols.length} 个 (enabled: true)`);
     console.log(`检查间隔：${settings.checkIntervalMinutes} 分钟`);
     console.log(`静默期：${settings.alertSilenceMinutes} 分钟`);
     console.log(`最大价格记录：${settings.maxPriceRecordsPerSymbol} 条/币种`);
@@ -287,20 +309,31 @@ async function handleConfigChange(newConfig) {
   const newSymbols = newConfig.symbols || [];
   const connectedSymbols = new Set(app.wsConnector?.getStats ? Object.keys(app.wsConnector.getStats()) : []);
   
-  // 找出新增的币种
-  const symbolsToAdd = newSymbols.filter(s => 
+  // 1. 找出新增的 enabled 币种（价格监控）
+  const enabledSymbolsToAdd = newSymbols.filter(s => 
     s.enabled && !connectedSymbols.has(s.symbol.toUpperCase())
   );
   
-  if (symbolsToAdd.length === 0) {
+  // 2. 如果波动侦测启用，添加所有未连接的币种
+  const volatilityConfig = newConfig.volatilityModule || {};
+  let allSymbolsToAdd = [...enabledSymbolsToAdd];
+  
+  if (volatilityConfig.enabled) {
+    const disabledSymbolsToAdd = newSymbols.filter(s => 
+      !s.enabled && !connectedSymbols.has(s.symbol.toUpperCase())
+    );
+    allSymbolsToAdd = [...enabledSymbolsToAdd, ...disabledSymbolsToAdd];
+  }
+  
+  if (allSymbolsToAdd.length === 0) {
     console.log('[ConfigChange] 没有新增的币种连接');
     return;
   }
   
-  console.log(`[ConfigChange] 发现 ${symbolsToAdd.length} 个新增币种：${symbolsToAdd.map(s => s.symbol).join(', ')}`);
+  console.log(`[ConfigChange] 发现 ${allSymbolsToAdd.length} 个新增币种：${allSymbolsToAdd.map(s => s.symbol).join(', ')}`);
   
   // 为新增币种建立 WebSocket 连接
-  const wsConfigs = symbolsToAdd.map(s => ({
+  const wsConfigs = allSymbolsToAdd.map(s => ({
     symbol: s.symbol,
     source: s.source,
     alphaId: s.alphaId
@@ -309,13 +342,13 @@ async function handleConfigChange(newConfig) {
   app.wsConnector?.connectMultiple(wsConfigs);
   
   // 为新增币种初始化波动监控
-  symbolsToAdd.forEach(s => {
+  allSymbolsToAdd.forEach(s => {
     app.volatilityMonitor?.init(s.symbol, s.volatility);
   });
   
   // 等待连接建立
   console.log('[ConfigChange] 等待 WebSocket 连接建立...');
-  await waitForConnections(app.wsConnector, connectedSymbols.size + symbolsToAdd.length, 10000);
+  await waitForConnections(app.wsConnector, connectedSymbols.size + allSymbolsToAdd.length, 10000);
   
   console.log('[ConfigChange] 新增币种连接完成 ✓');
 }
