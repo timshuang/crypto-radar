@@ -69,15 +69,23 @@ class VolatilityEngine {
   }
 
   /**
-   * 获取 Alpha 全量币种列表
+   * 获取 Alpha 全量币种列表（包含 symbol 和 ca）
    * 优先从 wsConnector.symbolCache 获取（WebSocket 全量推送时动态建立）
+   * @returns {Array<{symbol: string, ca: string, source: string}>}
    */
   async _getAlphaSymbols() {
     // 尝试从 wsConnector 的 symbolCache 获取（全量推送时已建立映射）
     if (this.wsConnector && this.wsConnector.symbolCache && this.wsConnector.symbolCache.size > 0) {
-      const symbols = Array.from(this.wsConnector.symbolCache.values());
-      console.log(`[Volatility] Alpha 全量币种：${symbols.length} 个 (from symbolCache)`);
-      return symbols;
+      const result = [];
+      for (const [ca, symbol] of this.wsConnector.symbolCache.entries()) {
+        result.push({
+          symbol,
+          ca,
+          source: 'alpha'
+        });
+      }
+      console.log(`[Volatility] Alpha 全量币种：${result.length} 个 (from symbolCache)`);
+      return result;
     }
     
     // symbolCache 为空时，返回空数组（等待下次检查）
@@ -215,19 +223,19 @@ class VolatilityEngine {
           this._getAlphaSymbols()
         ]);
         
+        console.log(`[Volatility] _getAlphaSymbols 返回：${alphaSymbols.length} 个 Alpha 币种`);
+        if (alphaSymbols.length > 0 && alphaSymbols.length <= 10) {
+          console.log(`[Volatility] Alpha 币种列表：${alphaSymbols.slice(0, 10).map(a => a.symbol).join(', ')}`);
+        }
+        
         // 现货 USDT
         volatilitySymbols = binanceSymbols.map(symbol => ({
           symbol,
           source: 'spot'
         }));
         
-        // Alpha 全量
-        const alphaSymbolsMapped = alphaSymbols.map(symbol => ({
-          symbol,
-          source: 'alpha'
-        }));
-        
-        volatilitySymbols = [...volatilitySymbols, ...alphaSymbolsMapped];
+        // Alpha 全量（_getAlphaSymbols 已返回完整对象）
+        volatilitySymbols = [...volatilitySymbols, ...alphaSymbols];
         console.log(`[Volatility] 全局监控：${binanceSymbols.length} 现货 + ${alphaSymbols.length} Alpha = ${volatilitySymbols.length} 总币种`);
       } else {
         // added 模式：监控列表所有币种
@@ -249,6 +257,12 @@ class VolatilityEngine {
       const alertState = await this.storage.getAlertState();
       const volatilityState = alertState.volatility || {};
       
+      // 调试：统计 Alpha 币种价格数据
+      let alphaWithPrice = 0;
+      let alphaWithoutPrice = 0;
+      let spotWithPrice = 0;
+      let spotWithoutPrice = 0;
+      
       for (const symbolConfig of volatilitySymbols) {
         const symbol = symbolConfig.symbol;
         const source = symbolConfig.source;
@@ -257,6 +271,13 @@ class VolatilityEngine {
         // 获取最新价格（Alpha 使用 ca 作为 key）
         const priceKey = (source === 'alpha' && ca) ? ca : symbol;
         const latestPrice = this.storage.getLatestPrice(priceKey);
+        
+        // 统计
+        if (source === 'alpha') {
+          if (latestPrice) alphaWithPrice++; else alphaWithoutPrice++;
+        } else {
+          if (latestPrice) spotWithPrice++; else spotWithoutPrice++;
+        }
         
         if (!latestPrice) {
           // 全局模式下，很多币种没有价格数据是正常的
@@ -290,9 +311,12 @@ class VolatilityEngine {
           console.log(`[Volatility] ${symbol} 波动检查：window=${volatility.windowMinutes}min, threshold=${volatility.thresholdPercent}%`);
         }
         
-        const volatilityResult = this.volatilityMonitor.check(priceKey, volatility);
+        let volatilityResult = this.volatilityMonitor.check(priceKey, volatility);
         
         if (volatilityResult) {
+          // 修复：将 symbol 替换为显示名称（而不是 ca）
+          volatilityResult.symbol = symbol;
+          
           if (volatilitySymbols.length <= 10 || volatilitySymbols.indexOf(symbolConfig) < 5) {
             const volValue = (volatilityResult.volatility || 0).toFixed(2);
             console.log(`[Volatility] ${symbol} 波动结果：${volValue}%, 阈值=${volatilityResult.threshold}%, 触发=${volatilityResult.isTriggered}`);
@@ -322,6 +346,7 @@ class VolatilityEngine {
       
       const duration = Date.now() - startTime;
       console.log(`[Volatility] 检查完成，耗时 ${duration}ms, 触发：${volatilityTriggers}`);
+      console.log(`[Volatility] 价格数据统计：现货 ${spotWithPrice}/${spotWithPrice + spotWithoutPrice}, Alpha ${alphaWithPrice}/${alphaWithPrice + alphaWithoutPrice}`);
       
     } catch (err) {
       console.error(`[Volatility] 检查失败：${err.message}`);
