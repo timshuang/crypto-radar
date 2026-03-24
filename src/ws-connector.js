@@ -337,6 +337,11 @@ class WSConnector {
         if (msg.data && msg.data.d && Array.isArray(msg.data.d)) {
           const tokens = msg.data.d;
           
+          // 调试：打印前 10 个 token 的完整结构，找出币种名称字段
+          if (connection.messageCount <= 10) {
+            console.log(`[WS] ${connection.name} Alpha token[${connection.messageCount}]:`, JSON.stringify(tokens[0]));
+          }
+          
           for (const token of tokens) {
             const symbol = token.s;
             let ca = token.ca ? token.ca.toLowerCase() : null;
@@ -352,13 +357,19 @@ class WSConnector {
             const time = Date.now();
             
             if (!isNaN(price)) {
-              // 全量推送时动态建立 ca -> symbol 映射
+              // 全量推送时动态建立映射
               if (ca && type === 'alpha-full') {
+                const oldSize = this.symbolCache.size;
                 // 更新 ws-connector 的 symbolCache（ca -> symbol）
                 this.symbolCache.set(ca, symbol);
                 
                 // 更新 storage 的 symbolMapping（symbol -> ca）
                 this.dataManager.setSymbolMapping(symbol, ca);
+                
+                // 调试日志：每 50 个打印一次
+                if ((oldSize === 0) || (this.symbolCache.size % 50 === 1)) {
+                  console.log(`[WS] ✅ symbolCache 更新：${this.symbolCache.size} 个 Alpha 币种`);
+                }
               }
               
               // 使用 ca 作为内部 key（如果有）

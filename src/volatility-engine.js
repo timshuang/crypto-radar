@@ -69,19 +69,27 @@ class VolatilityEngine {
   }
 
   /**
-   * 获取 Alpha 全量币种列表（包含 symbol 和 ca）
+   * 获取 Alpha 全量币种列表（包含 symbol、ca、displayName）
    * 优先从 wsConnector.symbolCache 获取（WebSocket 全量推送时动态建立）
-   * @returns {Array<{symbol: string, ca: string, source: string}>}
+   * @returns {Array<{symbol: string, ca: string, source: string, displayName: string}>}
    */
   async _getAlphaSymbols() {
     // 尝试从 wsConnector 的 symbolCache 获取（全量推送时已建立映射）
     if (this.wsConnector && this.wsConnector.symbolCache && this.wsConnector.symbolCache.size > 0) {
       const result = [];
+      const config = this.configManager.config;
+      const symbolsList = config.symbols || [];
+      
       for (const [ca, symbol] of this.wsConnector.symbolCache.entries()) {
+        // 尝试从 config.symbols 中查找币种名称
+        const symbolConfig = symbolsList.find(s => s.ca === ca || s.symbol === symbol);
+        const displayName = symbolConfig?.symbol || symbol;  // 如果找不到，使用 symbol（数字 ID）
+        
         result.push({
-          symbol,
-          ca,
-          source: 'alpha'
+          symbol,          // 数字 ID（如 "61"）
+          ca,              // 合约地址
+          source: 'alpha',
+          displayName      // 币种名称（如 "CYS"）或数字 ID
         });
       }
       console.log(`[Volatility] Alpha 全量币种：${result.length} 个 (from symbolCache)`);
@@ -267,6 +275,7 @@ class VolatilityEngine {
         const symbol = symbolConfig.symbol;
         const source = symbolConfig.source;
         const ca = symbolConfig.ca;
+        const displayName = symbolConfig.displayName || symbol;  // 使用币种名称（如 "CYS"）
         
         // 获取最新价格（Alpha 使用 ca 作为 key）
         const priceKey = (source === 'alpha' && ca) ? ca : symbol;
@@ -282,19 +291,19 @@ class VolatilityEngine {
         if (!latestPrice) {
           // 全局模式下，很多币种没有价格数据是正常的
           if (scope !== 'global') {
-            console.warn(`[Volatility] ${symbol} 无价格数据，跳过`);
+            console.warn(`[Volatility] ${displayName} 无价格数据，跳过`);
           }
           continue;
         }
         
-        // 检查静默期（使用 symbol 作为 key，便于用户理解）
-        const volatilityKey = `${symbol}_volatility`;
+        // 检查静默期（使用 displayName 作为 key，便于用户理解）
+        const volatilityKey = `${displayName}_volatility`;
         if (!this.storage.canAlert(volatilityKey)) {
           const silenceUntil = this.storage.getSilenceUntil(volatilityKey);
           const remainingMs = silenceUntil - now;
           const remainingMin = Math.ceil(remainingMs / 60000);
           if (volatilitySymbols.length <= 10 || volatilitySymbols.indexOf(symbolConfig) < 5) {
-            console.log(`[Volatility] ${symbol} 静默期中，剩余 ${remainingMin} 分钟`);
+            console.log(`[Volatility] ${displayName} 静默期中，剩余 ${remainingMin} 分钟`);
           }
           continue;
         }
@@ -314,22 +323,23 @@ class VolatilityEngine {
         let volatilityResult = this.volatilityMonitor.check(priceKey, volatility);
         
         if (volatilityResult) {
-          // 修复：将 symbol 替换为显示名称（而不是 ca）
-          volatilityResult.symbol = symbol;
+          // 修复：将 symbol 替换为显示名称（而不是数字 ID 或 ca）
+          volatilityResult.symbol = displayName;
+          volatilityResult.sourceType = source;  // 传递来源类型（alpha/spot）
           
           if (volatilitySymbols.length <= 10 || volatilitySymbols.indexOf(symbolConfig) < 5) {
             const volValue = (volatilityResult.volatility || 0).toFixed(2);
-            console.log(`[Volatility] ${symbol} 波动结果：${volValue}%, 阈值=${volatilityResult.threshold}%, 触发=${volatilityResult.isTriggered}`);
+            console.log(`[Volatility] ${displayName} 波动结果：${volValue}%, 阈值=${volatilityResult.threshold}%, 触发=${volatilityResult.isTriggered}`);
           }
         }
         
         if (volatilityResult && volatilityResult.isTriggered) {
-          console.log(`[Volatility] ${symbol} 触发，调用 handleTrigger...`);
+          console.log(`[Volatility] ${displayName} 触发，调用 handleTrigger...`);
           
           // 调用 handleTrigger 处理静默期和通知
           const success = await this.volatilityMonitor.handleTrigger(volatilityResult);
           
-          console.log(`[Volatility] ${symbol} handleTrigger 返回：${success}`);
+          console.log(`[Volatility] ${displayName} handleTrigger 返回：${success}`);
           
           if (success) {
             volatilityTriggers++;

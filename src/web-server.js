@@ -1393,8 +1393,15 @@ class WebServer extends EventEmitter {
     await this.configManager.save();
 
     // 通知应用停止/重启波动引擎
-    if (this.app && typeof this.app.restartVolatilityEngine === 'function') {
-      this.app.restartVolatilityEngine();
+    if (this.app && this.app.volatilityEngine) {
+      if (enabled) {
+        console.log('[WebServer] 重启波动侦测引擎...');
+        this.app.volatilityEngine.stop();
+        this.app.volatilityEngine.start();
+      } else {
+        console.log('[WebServer] 停止波动侦测引擎...');
+        this.app.volatilityEngine.stop();
+      }
     }
 
     return {

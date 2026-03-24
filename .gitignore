@@ -35,3 +35,4 @@ Thumbs.db
 
 # 工作区级敏感文件
 ../../.github-token
+alert_history.json
