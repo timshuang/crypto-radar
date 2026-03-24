@@ -363,11 +363,24 @@ class AlertService extends EventEmitter {
 
   /**
    * 获取币种来源类型
+   * 优先从 config.symbols 查找，找不到时从 storage.symbolMapping 判断（全量模式）
    */
   _getSourceType(symbol) {
     if (!this.configManager) return '现货';
+    
+    // 1. 优先从 config.symbols 查找
     const symbolConfig = this.configManager.config.symbols.find(s => s.symbol === symbol);
-    return symbolConfig?.source === 'alpha' ? 'Alpha' : '现货';
+    if (symbolConfig?.source === 'alpha') return 'Alpha';
+    if (symbolConfig?.source === 'spot') return '现货';
+    
+    // 2. 从 storage.symbolMapping 判断（全量模式下的 Alpha 币种）
+    if (this.storage && this.storage.getCaForSymbol) {
+      const ca = this.storage.getCaForSymbol(symbol);
+      if (ca) return 'Alpha';
+    }
+    
+    // 3. 默认返回现货
+    return '现货';
   }
 
   /**
