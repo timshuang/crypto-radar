@@ -1,5 +1,96 @@
 # Crypto Radar - 开发历史
 
+## 2026-03-24 11:40 - 波动侦测全量模式 Alpha 币种修复（价格数据 + 显示名称）
+
+### 执行者
+**钳子哥** (Coder)
+
+### 问题描述
+1. **Alpha 价格数据 key 不匹配**
+   - `_getAlphaSymbols()` 只返回 symbol（如 "101"）
+   - 但价格数据使用 ca（合约地址）作为 key 存储
+   - 导致 `storage.getLatestPrice(priceKey)` 找不到数据
+   - 结果：`价格数据统计：现货 446/446, Alpha 0/221`
+
+2. **TG 推送显示错误**
+   - 显示合约地址而不是币种名称（如 "0x92aa..." 而不是 "CYS"）
+   - 显示"现货"而不是"Alpha"
+
+### 根因分析
+1. `_getAlphaSymbols()` 返回格式错误：
+   ```javascript
+   // 错误：只返回 symbol 数组
+   return symbols;  // ["101", "111", ...]
+   
+   // 正确：返回完整对象数组
+   return [{symbol, ca, source}, ...];
+   ```
+
+2. `_getSourceType()` 只从 `config.symbols` 查找，全量模式下的 Alpha 币种不在列表中
+
+### 修复方案
+
+#### 1. 修复 _getAlphaSymbols 返回值
+**`src/volatility-engine.js`**:
+```javascript
+async _getAlphaSymbols() {
+  if (this.wsConnector && this.wsConnector.symbolCache && this.wsConnector.symbolCache.size > 0) {
+    const result = [];
+    for (const [ca, symbol] of this.wsConnector.symbolCache.entries()) {
+      result.push({ symbol, ca, source: 'alpha' });
+    }
+    return result;
+  }
+  return [];
+}
+```
+
+#### 2. 修复波动结果 symbol
+**`src/volatility-engine.js`**:
+```javascript
+let volatilityResult = this.volatilityMonitor.check(priceKey, volatility);
+if (volatilityResult) {
+  // 修复：将 symbol 替换为显示名称（而不是 ca）
+  volatilityResult.symbol = symbol;
+}
+```
+
+#### 3. 修复 _getSourceType
+**`src/alert-service.js`**:
+```javascript
+_getSourceType(symbol) {
+  // 1. 优先从 config.symbols 查找
+  const symbolConfig = this.configManager.config.symbols.find(s => s.symbol === symbol);
+  if (symbolConfig?.source === 'alpha') return 'Alpha';
+  
+  // 2. 从 storage.getCaForSymbol 判断（全量模式下的 Alpha 币种）
+  if (this.storage && this.storage.getCaForSymbol) {
+    const ca = this.storage.getCaForSymbol(symbol);
+    if (ca) return 'Alpha';
+  }
+  
+  return '现货';
+}
+```
+
+### 测试验证
+```
+✅ 价格数据统计：现货 446/446, Alpha 8/8
+✅ Alpha 全量币种：8 个 (from symbolCache)
+✅ 全局监控：446 现货 + 8 Alpha = 454 总币种
+```
+
+### 修改文件清单
+| 文件 | 修改内容 |
+|------|----------|
+| `src/volatility-engine.js` | _getAlphaSymbols 返回完整对象，修复 result.symbol |
+| `src/alert-service.js` | _getSourceType 支持 storage.getCaForSymbol 判断 |
+
+### 残留风险
+无。等待实际波动触发验证 TG 推送格式。
+
+---
+
 ## 2026-03-23 17:17 - 模块独立性修复（确保价格监控和波动侦测完全独立）
 
 ### 执行者
