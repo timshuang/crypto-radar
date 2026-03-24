@@ -15,11 +15,12 @@
  */
 
 class VolatilityEngine {
-  constructor(configManager, storage, alertService, volatilityMonitor) {
+  constructor(configManager, storage, alertService, volatilityMonitor, wsConnector) {
     this.configManager = configManager;
     this.storage = storage;
     this.alertService = alertService;
     this.volatilityMonitor = volatilityMonitor;
+    this.wsConnector = wsConnector;  // 注入 wsConnector，用于获取 Alpha 币种列表
     
     this.checkInterval = null;
     this.isRunning = false;
@@ -69,20 +70,19 @@ class VolatilityEngine {
 
   /**
    * 获取 Alpha 全量币种列表
+   * 优先从 wsConnector.symbolCache 获取（WebSocket 全量推送时动态建立）
    */
   async _getAlphaSymbols() {
-    try {
-      const url = 'https://www.alpha-gateway.com/api/v1/tokens';
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      const symbols = (data.tokens || []).map(t => t.symbol);
-      console.log(`[Volatility] Alpha 全量币种：${symbols.length} 个`);
+    // 尝试从 wsConnector 的 symbolCache 获取（全量推送时已建立映射）
+    if (this.wsConnector && this.wsConnector.symbolCache && this.wsConnector.symbolCache.size > 0) {
+      const symbols = Array.from(this.wsConnector.symbolCache.values());
+      console.log(`[Volatility] Alpha 全量币种：${symbols.length} 个 (from symbolCache)`);
       return symbols;
-    } catch (err) {
-      console.error(`[Volatility] 获取 Alpha 币种列表失败：${err.message}`);
-      return [];
     }
+    
+    // symbolCache 为空时，返回空数组（等待下次检查）
+    console.log(`[Volatility] Alpha symbolCache 为空，等待数据流入...`);
+    return [];
   }
 
   /**
@@ -94,8 +94,62 @@ class VolatilityEngine {
     
     console.log(`[Volatility] 启动，检查间隔：${intervalMinutes} 分钟`);
     
-    // 立即执行一次
-    this._runCheck();
+    // 等待 WebSocket 数据流入后再开始第一次检查（方案 2）
+    if (this.wsConnector && this.wsConnector.symbolCache) {
+      const initialSize = this.wsConnector.symbolCache.size;
+      console.log(`[Volatility] 当前 symbolCache: ${initialSize} 个 Alpha 币种`);
+      
+      if (initialSize === 0) {
+        // symbolCache 为空，发送等待通知
+        console.log(`[Volatility] 等待 Alpha 数据流入...`);
+        
+        if (this.alertService) {
+          this.alertService.sendTextToTelegram('🌊 波动侦测启动中\n\n正在等待 Alpha 数据流入...\n请稍候，预计 10-30 秒').catch(err => {
+            console.error('[Volatility] 发送等待通知失败:', err.message);
+          });
+        }
+        
+        // 轮询检查 symbolCache，有数据后再开始
+        const checkInterval = setInterval(() => {
+          if (this.wsConnector.symbolCache.size > 0) {
+            clearInterval(checkInterval);
+            const count = this.wsConnector.symbolCache.size;
+            console.log(`[Volatility] Alpha 数据已就绪 (${count} 个币种)，开始第一次检查...`);
+            
+            // 发送就绪通知
+            if (this.alertService) {
+              this.alertService.sendTextToTelegram(`✅ Alpha 数据已就绪\n\n已收录 ${count} 个 Alpha 币种\n开始波动检查...`).catch(err => {
+                console.error('[Volatility] 发送就绪通知失败:', err.message);
+              });
+            }
+            
+            this._runCheck();
+          }
+        }, 2000);
+        
+        // 超时保护：30 秒后无论有没有数据都开始检查
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          if (this.wsConnector.symbolCache.size === 0) {
+            console.warn(`[Volatility] 等待 Alpha 数据超时，直接开始检查（symbolCache 为空）`);
+            if (this.alertService) {
+              this.alertService.sendTextToTelegram('⚠️ 等待 Alpha 数据超时\n\n直接开始检查（仅现货）\nAlpha 数据可能延迟').catch(err => {
+                console.error('[Volatility] 发送超时通知失败:', err.message);
+              });
+            }
+          }
+          this._runCheck();
+        }, 30000);
+      } else {
+        // symbolCache 已有数据，直接开始
+        console.log(`[Volatility] Alpha 数据已就绪 (${initialSize} 个币种)，开始第一次检查...`);
+        this._runCheck();
+      }
+    } else {
+      // 没有 wsConnector，直接开始
+      console.log('[Volatility] 无 wsConnector，直接开始检查');
+      this._runCheck();
+    }
     
     // 定时执行
     this.checkInterval = setInterval(() => {
@@ -110,8 +164,9 @@ class VolatilityEngine {
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
       this.checkInterval = null;
-      console.log('[Volatility] 已停止');
     }
+    this.isRunning = false;  // 立即停止当前检查
+    console.log('[Volatility] 已停止');
   }
 
   /**

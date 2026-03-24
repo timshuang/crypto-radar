@@ -112,7 +112,7 @@ class WSConnector {
         symbol: token.symbol,
         ca: token.ca || token.alphaId,
         alphaId: token.alphaId,
-        streamName: `alpha_${token.alphaId.replace('ALPHA_', '')}usdt@miniTicker`
+        streamName: `alpha_${token.alphaId.replace('ALPHA_', '')}usdt@trade`
       });
     }
     
@@ -293,6 +293,11 @@ class WSConnector {
       connection.lastMessageTime = Date.now();
       connection.messageCount++;
       
+      // 调试日志：每 100 条消息打印一次
+      if (connection.messageCount % 100 === 1) {
+        console.log(`[WS] ${connection.name} 收到消息 #${connection.messageCount}: ${JSON.stringify(msg).substring(0, 200)}`);
+      }
+      
       const { type } = connection.options;
       
       // 现货全量推送（数组）
@@ -300,7 +305,7 @@ class WSConnector {
         const messages = Array.isArray(msg) ? msg : [msg];
         
         for (const item of messages) {
-          if (item.e === 'miniTicker') {
+          if (item.e === '24hrMiniTicker' || item.e === 'miniTicker') {
             const symbol = item.s;
             const price = parseFloat(item.c);
             const volume = parseFloat(item.q) || 0;
@@ -312,13 +317,14 @@ class WSConnector {
           }
         }
       }
-      // 现货组合流（单个对象）
+      // 现货组合流（外层包装：{"stream":"...", "data": {...}}）
       else if (type === 'spot-combined') {
-        if (msg.e === 'miniTicker') {
-          const symbol = msg.s;
-          const price = parseFloat(msg.c);
-          const volume = parseFloat(msg.q) || 0;
-          const time = msg.E || Date.now();
+        const data = msg.data || msg;
+        if (data.e === '24hrMiniTicker' || data.e === 'miniTicker') {
+          const symbol = data.s;
+          const price = parseFloat(data.c);
+          const volume = parseFloat(data.q) || 0;
+          const time = data.E || Date.now();
           
           if (!isNaN(price)) {
             this.dataManager.addPriceRecord(symbol, time, price, volume);
@@ -327,20 +333,31 @@ class WSConnector {
       }
       // Alpha 全量推送或组合流
       else if (type.includes('alpha')) {
-        // Alpha 推送格式：{"data":{"d":[{"s":"PIEVERSE","ca":"0x...","lp":"0.566"},...]}}
+        // Alpha 全量推送格式：{"data":{"d":[{"s":"PIEVERSE","ca":"0x...","lp":"0.566"},...]}}
         if (msg.data && msg.data.d && Array.isArray(msg.data.d)) {
           const tokens = msg.data.d;
           
           for (const token of tokens) {
             const symbol = token.s;
-            const ca = token.ca ? token.ca.toLowerCase() : null;
-            const price = parseFloat(token.lp);
+            let ca = token.ca ? token.ca.toLowerCase() : null;
+            
+            // 清理 ca 中的 @56 后缀
+            if (ca && ca.includes('@')) {
+              ca = ca.split('@')[0];
+            }
+            
+            // 价格字段：全量推送使用 'p'，组合流使用 'lp'
+            const priceValue = type === 'alpha-full' ? token.p : token.lp;
+            const price = parseFloat(priceValue);
             const time = Date.now();
             
             if (!isNaN(price)) {
               // 全量推送时动态建立 ca -> symbol 映射
               if (ca && type === 'alpha-full') {
+                // 更新 ws-connector 的 symbolCache（ca -> symbol）
                 this.symbolCache.set(ca, symbol);
+                
+                // 更新 storage 的 symbolMapping（symbol -> ca）
                 this.dataManager.setSymbolMapping(symbol, ca);
               }
               
@@ -348,6 +365,20 @@ class WSConnector {
               const key = ca || symbol;
               this.dataManager.addPriceRecord(key, time, price, 0, symbol);
             }
+          }
+        }
+        // Alpha 组合流格式（@trade）：{"e":"trade","s":"ALPHA_469","p":"0.566","q":"100",...}
+        // 或（@ticker）：{"s":"ALPHA_469","lp":"0.566","q":"100",...}
+        if (msg.s && (msg.p || msg.lp)) {
+          const symbol = msg.s;
+          const price = parseFloat(msg.p || msg.lp);
+          const volume = parseFloat(msg.q) || 0;
+          const time = msg.E || msg.T || Date.now();
+          
+          if (!isNaN(price)) {
+            // 组合流：使用 alphaId 作为 key
+            const key = symbol;
+            this.dataManager.addPriceRecord(key, time, price, volume, symbol);
           }
         }
         

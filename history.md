@@ -1911,6 +1911,75 @@ Refactor: 删除波动侦测阶梯阈值残留逻辑
 
 ---
 
+## 2026-03-24 08:20 - 修复波动侦测全量模式 Alpha 币种数据流 - 开发完成
+
+### 执行者
+**钳子哥** (Coder)
+
+### 问题描述
+波动侦测全量模式（`scope: 'global'`）下，Telegram 能收到现货波动通知，但收不到 Alpha 币种波动通知。
+
+### 根因分析
+1. **`VolatilityEngine` 构造函数缺少 `wsConnector` 参数注入**
+   - `this.wsConnector` 是 `undefined`
+   - `_getAlphaSymbols()` 无法访问 `wsConnector.symbolCache`
+   - 全量模式下 Alpha 币种列表返回空数组
+
+2. **Alpha 全量推送价格字段错误**
+   - 代码使用 `token.lp` 获取价格
+   - 实际 API 返回的是 `token.p`
+   - 导致 `price = NaN`，所有 Alpha 数据被跳过
+
+### 修复方案
+
+#### 1. 注入 wsConnector
+**`src/volatility-engine.js`**:
+```javascript
+constructor(configManager, storage, alertService, volatilityMonitor, wsConnector) {
+  // ...
+  this.wsConnector = wsConnector;  // 新增：注入 wsConnector
+}
+```
+
+**`src/index.js`**:
+```javascript
+app.volatilityEngine = new VolatilityEngine(
+  app.configManager,
+  app.storage,
+  app.alertService,
+  app.volatilityMonitor,
+  app.wsConnector  // 新增：注入 wsConnector
+);
+```
+
+#### 2. 修复价格字段
+**`src/ws-connector.js`**:
+```javascript
+// 价格字段：全量推送使用 'p'，组合流使用 'lp'
+const priceValue = type === 'alpha-full' ? token.p : token.lp;
+const price = parseFloat(priceValue);
+```
+
+### 测试验证
+```
+=== 测试结果 ===
+✅ PASS: Alpha 数据流正常
+   - symbolCache: 109 个
+   - _getAlphaSymbols: 109 个
+```
+
+### 修改文件清单
+| 文件 | 修改内容 |
+|------|----------|
+| `src/volatility-engine.js` | 构造函数添加 `wsConnector` 参数 |
+| `src/index.js` | 初始化时注入 `wsConnector` |
+| `src/ws-connector.js` | 修复 Alpha 全量推送价格字段 (`p` vs `lp`) |
+
+### 残留风险
+无。测试通过。
+
+---
+
 ## 2026-03-23 12:20 - 全面清理阶梯阈值残留逻辑 - 开发完成
 
 ### 执行者

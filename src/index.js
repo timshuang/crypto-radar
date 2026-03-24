@@ -110,7 +110,8 @@ async function init() {
       app.configManager,
       app.storage,
       app.alertService,
-      app.volatilityMonitor
+      app.volatilityMonitor,
+      app.wsConnector  // 注入 wsConnector，用于获取 Alpha 币种列表
     );
     
     // 7. 初始化系统监控
