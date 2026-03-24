@@ -81,6 +81,7 @@ async function init() {
     // 4. 初始化告警服务
     console.log('[Init] 初始化告警服务...');
     app.alertService = new AlertService(barkConfig, app.configManager, app.notificationService);
+    app.alertService.storage = app.storage;
     
     // 绑定 WebSocket 服务器（稍后初始化）
     // 在 Web 服务器启动后绑定

@@ -268,6 +268,9 @@ class VolatilityMonitor {
       volatility,
       min: stats.min,
       max: stats.max,
+      startPrice: stats.startPrice,
+      endPrice: stats.endPrice,
+      direction: stats.endPrice >= stats.startPrice ? 'up' : 'down',
       threshold: currentThreshold,
       baseThreshold: thresholdPercent,
       isTriggered,
@@ -279,7 +282,7 @@ class VolatilityMonitor {
    * 处理触发的波动
    */
   async handleTrigger(result) {
-    const { symbol, volatility, min, max, threshold } = result;
+    const { symbol, volatility, min, max, threshold, direction } = result;
     const volatilityKey = `${symbol}_volatility`;
     
     // 检查静默期
@@ -294,7 +297,8 @@ class VolatilityMonitor {
       volatility,
       min,
       max,
-      threshold
+      threshold,
+      direction
     );
     
     // 无论发送成功还是失败，都设置静默期（防止连续轰炸）

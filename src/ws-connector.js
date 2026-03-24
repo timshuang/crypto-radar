@@ -59,6 +59,11 @@ class WSConnector {
     
     // 符号映射缓存（全量推送时动态建立）
     this.symbolCache = new Map(); // ca -> symbol
+    this.alphaIdByCa = new Map(); // ca -> alpha numeric id
+    this.alphaTokenNameCache = new Map(); // alpha numeric id -> symbol
+    this.alphaTokenNameCacheTime = 0;
+    this.alphaTokenNameCacheTtl = 60 * 60 * 1000; // 1 小时缓存
+    this.alphaTokenFetchPromise = null;
   }
 
   /**
@@ -78,6 +83,84 @@ class WSConnector {
     // 如果模式改变，需要重新连接波动侦测
     if (oldMode !== mode && (this.connections.volatilitySpot || this.connections.volatilityAlpha)) {
       console.log('[WS] 波动模式变更，需要重新连接波动侦测');
+    }
+  }
+
+  /**
+   * 加载 Alpha 代币名称映射
+   * came@allTokens@ticker24 的 s 字段在全量模式下是数字 ID，需要额外映射到真实 symbol
+   */
+  async loadAlphaTokenNameCache(force = false) {
+    const now = Date.now();
+    if (!force && this.alphaTokenNameCache.size > 0 && (now - this.alphaTokenNameCacheTime) < this.alphaTokenNameCacheTtl) {
+      return this.alphaTokenNameCache;
+    }
+
+    if (this.alphaTokenFetchPromise) {
+      return this.alphaTokenFetchPromise;
+    }
+
+    this.alphaTokenFetchPromise = (async () => {
+      try {
+        const response = await fetch('https://www.binance.com/bapi/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list');
+        const data = await response.json();
+        const tokens = Array.isArray(data?.data) ? data.data : [];
+        const nameCache = new Map();
+
+        for (const token of tokens) {
+          if (!token?.alphaId || !token?.symbol) continue;
+          const numericId = token.alphaId.replace(/^ALPHA_/, '');
+          if (numericId) {
+            nameCache.set(numericId, token.symbol);
+          }
+        }
+
+        if (nameCache.size > 0) {
+          this.alphaTokenNameCache = nameCache;
+          this.alphaTokenNameCacheTime = Date.now();
+          this._reconcileAlphaSymbolCache();
+          console.log(`[WS] Alpha 名称映射已加载：${nameCache.size} 个`);
+        }
+      } catch (err) {
+        console.warn(`[WS] 加载 Alpha 名称映射失败：${err.message}`);
+      } finally {
+        this.alphaTokenFetchPromise = null;
+      }
+
+      return this.alphaTokenNameCache;
+    })();
+
+    return this.alphaTokenFetchPromise;
+  }
+
+  /**
+   * 解析 Alpha 全量推送里的真实显示名称
+   */
+  _resolveAlphaSymbol(rawSymbol) {
+    if (rawSymbol === null || rawSymbol === undefined) {
+      return rawSymbol;
+    }
+
+    const raw = String(rawSymbol);
+    if (!/^\d+$/.test(raw)) {
+      return raw;
+    }
+
+    return this.alphaTokenNameCache.get(raw) || raw;
+  }
+
+  /**
+   * 在名称映射加载后回填已有的 symbolCache
+   */
+  _reconcileAlphaSymbolCache() {
+    for (const [ca, alphaId] of this.alphaIdByCa.entries()) {
+      const resolvedSymbol = this._resolveAlphaSymbol(alphaId);
+      if (!resolvedSymbol || resolvedSymbol === alphaId) {
+        continue;
+      }
+
+      this.symbolCache.set(ca, resolvedSymbol);
+      this.dataManager.setSymbolMapping(resolvedSymbol, ca);
     }
   }
 
@@ -199,6 +282,9 @@ class WSConnector {
     if (this.volatilityMode === 'global') {
       // 全量推送模式
       console.log(`[WS] 波动侦测 Alpha 全量推送：came@allTokens@ticker24`);
+      this.loadAlphaTokenNameCache().catch(err => {
+        console.warn(`[WS] 预加载 Alpha 名称映射失败：${err.message}`);
+      });
       this._connect('volatilityAlpha', this.alphaWsUrl, { 
         type: 'alpha-full',
         streamNames: ['came@allTokens@ticker24']
@@ -343,13 +429,19 @@ class WSConnector {
           }
           
           for (const token of tokens) {
-            const symbol = token.s;
+            const rawSymbol = token.s;
             let ca = token.ca ? token.ca.toLowerCase() : null;
             
             // 清理 ca 中的 @56 后缀
             if (ca && ca.includes('@')) {
               ca = ca.split('@')[0];
             }
+
+            if (ca && type === 'alpha-full' && rawSymbol !== undefined && rawSymbol !== null) {
+              this.alphaIdByCa.set(ca, String(rawSymbol));
+            }
+
+            const symbol = this._resolveAlphaSymbol(rawSymbol);
             
             // 价格字段：全量推送使用 'p'，组合流使用 'lp'
             const priceValue = type === 'alpha-full' ? token.p : token.lp;

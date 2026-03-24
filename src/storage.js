@@ -49,6 +49,8 @@ class PriceBuffer {
     let min = Infinity;
     let max = -Infinity;
     let found = false;
+    let startPrice = null;
+    let endPrice = null;
 
     // 从后向前遍历（最新的数据）
     for (let i = 0; i < this.count; i++) {
@@ -58,12 +60,16 @@ class PriceBuffer {
       if (time < windowStart) break;
       
       const price = this.prices[idx];
+      if (endPrice === null) {
+        endPrice = price;
+      }
+      startPrice = price;
       if (price < min) min = price;
       if (price > max) max = price;
       found = true;
     }
 
-    return found ? { min, max } : null;
+    return found ? { min, max, startPrice, endPrice } : null;
   }
 
   /**

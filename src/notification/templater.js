@@ -41,8 +41,8 @@ class Templater {
    * 示例：[波动] 现货 BTCUSDT 5min 上涨 3.5%
    */
   buildVolatilityAlert(alert) {
-    const sourceType = alert.source === 'alpha' ? 'Alpha' : '现货';
-    const direction = alert.changePercent > 0 ? '上涨' : '下跌';
+    const sourceType = alert.sourceType || (alert.source === 'alpha' ? 'Alpha' : '现货');
+    const direction = alert.direction === 'down' ? '下跌' : '上涨';
     
     const title = '波动预警';
     const content = `[波动] ${sourceType} ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(1)}%`;

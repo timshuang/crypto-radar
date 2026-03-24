@@ -262,7 +262,7 @@ class AlertService extends EventEmitter {
   /**
    * 发送波动告警
    */
-  async sendVolatilityAlert(symbol, volatility, min, max, threshold) {
+  async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null) {
     const title = '🌊 波动侦测';
     const body = `${symbol} 波动 ${(volatility || 0).toFixed(2)}% (阈值 ${(threshold || 0).toFixed(1)}%)\n区间：$${min?.toLocaleString() || 'N/A'} - $${max?.toLocaleString() || 'N/A'}`;
     
@@ -274,25 +274,25 @@ class AlertService extends EventEmitter {
       type: 'volatility'
     });
     
-    // 获取当前价格，判断方向（当前价 vs 窗口起始价）
-    const latestPrice = this.storage?.getLatestPrice(symbol);
-    const currentPrice = latestPrice?.price || max;
-    
-    // 获取窗口起始价格（第一个价格）
     const windowMinutes = this.configManager?.config?.volatilityModule?.windowMinutes || 5;
-    const windowStats = this.storage?.getWindowStats(windowMinutes);
-    const startPrice = windowStats?.startPrice || min;
-    
-    // 判断方向：当前价 > 起始价 = 上涨，否则 = 下跌
-    const direction = currentPrice >= startPrice ? 'up' : 'down';
+
+    // 优先使用波动计算阶段已经得出的方向；兜底时再从窗口起始价和当前价计算
+    let direction = directionOverride;
+    if (!direction) {
+      const latestPrice = this.storage?.getLatestPrice(symbol);
+      const currentPrice = latestPrice?.price ?? max;
+      const windowStats = this.storage?.getWindowStats(symbol, windowMinutes);
+      const startPrice = windowStats?.startPrice ?? min;
+      direction = currentPrice < startPrice ? 'down' : 'up';
+    }
     
     // 发送外部通知（新通知服务）
     const alert = {
       symbol,
       source: 'volatility',
-      windowMinutes: this.configManager?.config?.volatilityModule?.windowMinutes || 5,  // 从全局配置读取
+      windowMinutes,
       changePercent: volatility,
-      direction: direction,
+      direction,
       sourceType: this._getSourceType(symbol)
     };
     await this.sendExternalNotification(alert);
