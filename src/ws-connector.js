@@ -79,6 +79,72 @@ class WSConnector {
     return raw.startsWith('0x') ? raw.toLowerCase() : raw;
   }
 
+  _normalizeAlphaId(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const raw = String(value).toUpperCase();
+    const match = raw.match(/ALPHA_(\d+)/);
+    return match ? `ALPHA_${match[1]}` : null;
+  }
+
+  _extractAlphaIdFromStream(streamName) {
+    if (!streamName) {
+      return null;
+    }
+
+    const match = String(streamName).match(/alpha_(\d+)usdt@/i);
+    return match ? `ALPHA_${match[1]}` : null;
+  }
+
+  _findAlphaSubscriptionById(alphaId, connection) {
+    if (!alphaId) {
+      return null;
+    }
+
+    const normalizedAlphaId = this._normalizeAlphaId(alphaId);
+    const candidates = [connection?.options?.subscriptions, this.priceMonitorSubscriptions.alpha];
+
+    for (const subscriptions of candidates) {
+      if (!(subscriptions instanceof Map)) continue;
+
+      for (const subscription of subscriptions.values()) {
+        if (this._normalizeAlphaId(subscription?.alphaId) === normalizedAlphaId) {
+          return subscription;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  _resolveAlphaCaById(alphaId, connection) {
+    if (!alphaId) {
+      return null;
+    }
+
+    const normalizedAlphaId = this._normalizeAlphaId(alphaId);
+    if (!normalizedAlphaId) {
+      return null;
+    }
+
+    const subscription = this._findAlphaSubscriptionById(normalizedAlphaId, connection);
+    if (subscription?.ca) {
+      return this._normalizeAlphaKey(subscription.ca);
+    }
+
+    const alphaTokens = connection?.options?.alphaTokens;
+    if (Array.isArray(alphaTokens)) {
+      const token = alphaTokens.find(item => this._normalizeAlphaId(item?.alphaId) === normalizedAlphaId);
+      if (token?.ca) {
+        return this._normalizeAlphaKey(token.ca);
+      }
+    }
+
+    return null;
+  }
+
   /**
    * 设置波动侦测模式
    */
@@ -482,18 +548,25 @@ class WSConnector {
             }
           }
         }
-        // Alpha 组合流格式（@trade）：{"e":"trade","s":"ALPHA_469","p":"0.566","q":"100",...}
-        // 或（@ticker）：{"s":"ALPHA_469","lp":"0.566","q":"100",...}
-        if (msg.s && (msg.p || msg.lp)) {
-          const symbol = msg.s;
-          const price = parseFloat(msg.p || msg.lp);
-          const volume = parseFloat(msg.q) || 0;
-          const time = msg.E || msg.T || Date.now();
-          
-          if (!isNaN(price)) {
-            // 组合流：使用 alphaId 作为 key
-            const key = symbol;
-            this.dataManager.addPriceRecord(key, time, price, volume, symbol);
+        // Alpha 组合流（外层包装：{"stream":"...", "data": {...}}）
+        // @trade：{"data":{"e":"trade","s":"ALPHA_495USDT","p":"0.49","q":"100","E":...},"stream":"alpha_495usdt@trade"}
+        // @ticker：{"data":{"s":"ALPHA_495USDT","lp":"0.49","q":"100","E":...},"stream":"alpha_495usdt@ticker"}
+        if (type === 'alpha-combined') {
+          const combinedData = msg.data || msg;
+          if (combinedData.s && (combinedData.p || combinedData.lp)) {
+            const alphaId = this._normalizeAlphaId(combinedData.s) || this._extractAlphaIdFromStream(msg.stream);
+            const ca = this._resolveAlphaCaById(alphaId, connection);
+            const price = parseFloat(combinedData.p || combinedData.lp);
+            const volume = parseFloat(combinedData.q) || 0;
+            const time = combinedData.E || combinedData.T || Date.now();
+
+            if (!isNaN(price) && ca) {
+              const subscription = this._findAlphaSubscriptionById(alphaId, connection);
+              const displaySymbol = subscription?.symbol || alphaId;
+              this.dataManager.addPriceRecord(ca, time, price, volume, displaySymbol);
+            } else if (!ca && connection.messageCount % 200 === 1) {
+              console.warn(`[WS] ${connection.name} Alpha 组合流未找到 ca 映射，跳过存储: symbol=${combinedData.s}, stream=${msg.stream || 'N/A'}`);
+            }
           }
         }
         
