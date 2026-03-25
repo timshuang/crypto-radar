@@ -66,6 +66,19 @@ class WSConnector {
     this.alphaTokenFetchPromise = null;
   }
 
+  _isAlphaNumericId(value) {
+    return value !== null && value !== undefined && /^\d+$/.test(String(value));
+  }
+
+  _normalizeAlphaKey(value) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    const raw = String(value);
+    return raw.startsWith('0x') ? raw.toLowerCase() : raw;
+  }
+
   /**
    * 设置波动侦测模式
    */
@@ -142,7 +155,7 @@ class WSConnector {
     }
 
     const raw = String(rawSymbol);
-    if (!/^\d+$/.test(raw)) {
+    if (!this._isAlphaNumericId(raw)) {
       return raw;
     }
 
@@ -182,7 +195,7 @@ class WSConnector {
       
       if (token.ca) {
         // 优先使用 ca
-        caKey = token.ca.toLowerCase();
+        caKey = this._normalizeAlphaKey(token.ca);
       } else if (token.alphaId) {
         // 向后兼容：使用 alphaId
         caKey = token.alphaId.toLowerCase();
@@ -278,13 +291,11 @@ class WSConnector {
    * 连接波动侦测 Alpha（根据模式选择组合流或全量推送）
    * 注意：波动侦测独立于价格监控，使用所有监控列表币种（不管 enabled 状态）
    */
-  connectVolatilityAlpha(alphaTokens, useAllSymbols = false) {
+  async connectVolatilityAlpha(alphaTokens, useAllSymbols = false) {
     if (this.volatilityMode === 'global') {
       // 全量推送模式
       console.log(`[WS] 波动侦测 Alpha 全量推送：came@allTokens@ticker24`);
-      this.loadAlphaTokenNameCache().catch(err => {
-        console.warn(`[WS] 预加载 Alpha 名称映射失败：${err.message}`);
-      });
+      await this.loadAlphaTokenNameCache();
       this._connect('volatilityAlpha', this.alphaWsUrl, { 
         type: 'alpha-full',
         streamNames: ['came@allTokens@ticker24']
@@ -430,7 +441,7 @@ class WSConnector {
           
           for (const token of tokens) {
             const rawSymbol = token.s;
-            let ca = token.ca ? token.ca.toLowerCase() : null;
+            let ca = token.ca ? this._normalizeAlphaKey(token.ca) : null;
             
             // 清理 ca 中的 @56 后缀
             if (ca && ca.includes('@')) {
@@ -441,7 +452,8 @@ class WSConnector {
               this.alphaIdByCa.set(ca, String(rawSymbol));
             }
 
-            const symbol = this._resolveAlphaSymbol(rawSymbol);
+            const resolvedSymbol = this._resolveAlphaSymbol(rawSymbol);
+            const hasResolvedSymbol = resolvedSymbol && !this._isAlphaNumericId(resolvedSymbol);
             
             // 价格字段：全量推送使用 'p'，组合流使用 'lp'
             const priceValue = type === 'alpha-full' ? token.p : token.lp;
@@ -452,11 +464,11 @@ class WSConnector {
               // 全量推送时动态建立映射
               if (ca && type === 'alpha-full') {
                 const oldSize = this.symbolCache.size;
-                // 更新 ws-connector 的 symbolCache（ca -> symbol）
-                this.symbolCache.set(ca, symbol);
-                
-                // 更新 storage 的 symbolMapping（symbol -> ca）
-                this.dataManager.setSymbolMapping(symbol, ca);
+                if (hasResolvedSymbol) {
+                  // 只有拿到真实 symbol 后才建立映射，避免把数字 ID 写入缓存和存储
+                  this.symbolCache.set(ca, resolvedSymbol);
+                  this.dataManager.setSymbolMapping(resolvedSymbol, ca);
+                }
                 
                 // 调试日志：每 50 个打印一次
                 if ((oldSize === 0) || (this.symbolCache.size % 50 === 1)) {
@@ -465,8 +477,8 @@ class WSConnector {
               }
               
               // 使用 ca 作为内部 key（如果有）
-              const key = ca || symbol;
-              this.dataManager.addPriceRecord(key, time, price, 0, symbol);
+              const key = ca || resolvedSymbol;
+              this.dataManager.addPriceRecord(key, time, price, 0, hasResolvedSymbol ? resolvedSymbol : null);
             }
           }
         }
@@ -571,9 +583,13 @@ class WSConnector {
         }
       } else if (name === 'volatilityAlpha') {
         if (this.volatilityMode === 'global') {
-          this.connectVolatilityAlpha([]);
+          this.connectVolatilityAlpha([]).catch(err => {
+            console.error(`[WS] ${name} 重连失败：${err.message}`);
+          });
         } else {
-          this.connectVolatilityAlpha(options.alphaTokens);
+          this.connectVolatilityAlpha(options.alphaTokens).catch(err => {
+            console.error(`[WS] ${name} 重连失败：${err.message}`);
+          });
         }
       }
     }, reconnectDelay);

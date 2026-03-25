@@ -215,7 +215,7 @@ async function start() {
         // 全量推送模式
         console.log('[Start] 波动侦测：全量推送模式（独立连接）');
         app.wsConnector.connectVolatilitySpot([]);
-        app.wsConnector.connectVolatilityAlpha([]);
+        await app.wsConnector.connectVolatilityAlpha([]);
       } else {
         // 监控列表模式（组合流）- 使用所有币种
         console.log(`[Start] 波动侦测：监控列表组合流模式（独立连接）：${allSpotSymbols.length} 现货 + ${allAlphaTokens.length} Alpha = ${allSymbols.length} 总币种`);
@@ -223,7 +223,7 @@ async function start() {
           app.wsConnector.connectVolatilitySpot(allSpotSymbols);
         }
         if (allAlphaTokens.length > 0) {
-          app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
+          await app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
         }
       }
     } else {
@@ -413,14 +413,14 @@ async function handleConfigChange(newConfig) {
       if (scope === 'global') {
         console.log('[ConfigChange] 波动侦测：全量推送模式（独立连接）');
         app.wsConnector.connectVolatilitySpot([]);
-        app.wsConnector.connectVolatilityAlpha([]);
+        await app.wsConnector.connectVolatilityAlpha([]);
       } else {
         console.log(`[ConfigChange] 波动侦测：监控列表组合流模式（独立连接）：${allSpotSymbols.length} 现货 + ${allAlphaTokens.length} Alpha`);
         if (allSpotSymbols.length > 0) {
           app.wsConnector.connectVolatilitySpot(allSpotSymbols);
         }
         if (allAlphaTokens.length > 0) {
-          app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
+          await app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
         }
       }
     } else {
@@ -436,7 +436,7 @@ async function handleConfigChange(newConfig) {
           app.wsConnector.connectVolatilitySpot(allSpotSymbols);
         }
         if (allAlphaTokens.length > 0) {
-          app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
+          await app.wsConnector.connectVolatilityAlpha(allAlphaTokens);
         }
       }
     }

@@ -77,16 +77,15 @@ class VolatilityEngine {
     // 尝试从 wsConnector 的 symbolCache 获取（全量推送时已建立映射）
     if (this.wsConnector && this.wsConnector.symbolCache && this.wsConnector.symbolCache.size > 0) {
       const result = [];
-      const config = this.configManager.config;
-      const symbolsList = config.symbols || [];
       
       for (const [ca, symbol] of this.wsConnector.symbolCache.entries()) {
-        // 尝试从 config.symbols 中查找币种名称
-        const symbolConfig = symbolsList.find(s => s.ca === ca || s.symbol === symbol);
-        const displayName = symbolConfig?.symbol || symbol;  // 如果找不到，使用 symbol（数字 ID）
+        const displayName = this.storage.getSymbolForCa(ca) || symbol;
+        if (!displayName || /^\d+$/.test(String(displayName))) {
+          continue;
+        }
         
         result.push({
-          symbol,          // 数字 ID（如 "61"）
+          symbol: displayName,
           ca,              // 合约地址
           source: 'alpha',
           displayName      // 币种名称（如 "CYS"）或数字 ID
@@ -275,7 +274,9 @@ class VolatilityEngine {
         const symbol = symbolConfig.symbol;
         const source = symbolConfig.source;
         const ca = symbolConfig.ca;
-        const displayName = symbolConfig.displayName || symbol;  // 使用币种名称（如 "CYS"）
+        const displayName = (source === 'alpha' && ca)
+          ? (this.storage.getSymbolForCa(ca) || symbolConfig.displayName || symbol)
+          : (symbolConfig.displayName || symbol);
         
         // 获取最新价格（Alpha 使用 ca 作为 key）
         const priceKey = (source === 'alpha' && ca) ? ca : symbol;

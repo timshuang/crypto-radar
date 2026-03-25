@@ -294,6 +294,14 @@ class StorageManager {
     this.alertHistory = [];
   }
 
+  _normalizeKey(key) {
+    if (typeof key !== 'string') {
+      return key;
+    }
+
+    return key.startsWith('0x') ? key.toLowerCase() : key;
+  }
+
   /**
    * 初始化存储
    */
@@ -311,18 +319,19 @@ class StorageManager {
     
     // 恢复价格历史到内存缓冲区
     const priceData = this.priceHistoryStore.getAll();
-    for (const [displaySymbol, data] of Object.entries(priceData)) {
+    for (const [storedKey, data] of Object.entries(priceData)) {
       if (data && Array.isArray(data.records)) {
-        // 如果有 _key 字段，使用它作为内部 key（Alpha 的 ca）
-        const internalKey = data._key || displaySymbol;
+        // 统一使用内部 key 恢复；兼容旧格式（displaySymbol 作为对象 key，_key 为内部 key）
+        const internalKey = this._normalizeKey(data._key || storedKey);
         
         const buffer = new PriceBuffer(this.maxRecords);
         buffer.fromArray(data.records);
         this.priceBuffers.set(internalKey, buffer);
         
-        // 恢复符号映射（如果是 Alpha）
-        if (data._key && data._key !== displaySymbol) {
-          this.setSymbolMapping(displaySymbol, data._key);
+        // 仅从新格式的 displaySymbol 字段恢复映射。
+        // 旧格式的对象 key 可能已经错乱，不能再拿它回灌 symbolMapping。
+        if (data.displaySymbol && data.displaySymbol !== internalKey) {
+          this.setSymbolMapping(data.displaySymbol, internalKey);
         }
       }
     }
@@ -337,10 +346,11 @@ class StorageManager {
    * 获取或创建价格缓冲区
    */
   getPriceBuffer(symbol) {
-    if (!this.priceBuffers.has(symbol)) {
-      this.priceBuffers.set(symbol, new PriceBuffer(this.maxRecords));
+    const normalizedKey = this._normalizeKey(symbol);
+    if (!this.priceBuffers.has(normalizedKey)) {
+      this.priceBuffers.set(normalizedKey, new PriceBuffer(this.maxRecords));
     }
-    return this.priceBuffers.get(symbol);
+    return this.priceBuffers.get(normalizedKey);
   }
 
   /**
@@ -348,8 +358,9 @@ class StorageManager {
    */
   setSymbolMapping(symbol, ca) {
     if (symbol && ca) {
-      this.symbolMapping.set(symbol, ca);
-      this.reverseSymbolMapping.set(ca, symbol);
+      const normalizedCa = this._normalizeKey(ca);
+      this.symbolMapping.set(symbol, normalizedCa);
+      this.reverseSymbolMapping.set(normalizedCa, symbol);
     }
   }
 
@@ -357,7 +368,7 @@ class StorageManager {
    * 获取符号映射
    */
   getSymbolForCa(ca) {
-    return this.reverseSymbolMapping.get(ca?.toLowerCase());
+    return this.reverseSymbolMapping.get(this._normalizeKey(ca));
   }
 
   /**
@@ -376,12 +387,14 @@ class StorageManager {
    * @param {string} displaySymbol - 显示用的符号名（可选，用于 Alpha）
    */
   addPriceRecord(key, time, price, volume = 0, displaySymbol = null) {
+    const normalizedKey = this._normalizeKey(key);
+
     // 如果是 Alpha 且提供了 displaySymbol，记录映射关系
-    if (displaySymbol && key !== displaySymbol) {
-      this.setSymbolMapping(displaySymbol, key);
+    if (displaySymbol && normalizedKey !== displaySymbol) {
+      this.setSymbolMapping(displaySymbol, normalizedKey);
     }
     
-    const buffer = this.getPriceBuffer(key);
+    const buffer = this.getPriceBuffer(normalizedKey);
     buffer.push(time, price, volume);
   }
 
@@ -390,7 +403,7 @@ class StorageManager {
    * @param {string} key - 内部使用的 key（现货：symbol，Alpha：ca）
    */
   getLatestPrice(key) {
-    const buffer = this.priceBuffers.get(key);
+    const buffer = this.priceBuffers.get(this._normalizeKey(key));
     return buffer ? buffer.getLatest() : null;
   }
 
@@ -418,7 +431,7 @@ class StorageManager {
    * @param {number} windowMinutes - 时间窗口（分钟）
    */
   getWindowStats(key, windowMinutes) {
-    const buffer = this.priceBuffers.get(key);
+    const buffer = this.priceBuffers.get(this._normalizeKey(key));
     return buffer ? buffer.getWindowStats(windowMinutes) : null;
   }
 
@@ -429,14 +442,13 @@ class StorageManager {
     const priceData = {};
     
     for (const [key, buffer] of this.priceBuffers.entries()) {
-      // 获取显示用的符号（Alpha 使用 symbol，现货使用 symbol）
       const displaySymbol = this.getSymbolForCa(key) || key;
       
-      priceData[displaySymbol] = {
+      priceData[key] = {
         lastUpdate: Date.now(),
         latestPrice: buffer.getLatest()?.price || 0,
         records: buffer.toArray(),
-        _key: key !== displaySymbol ? key : undefined // 如果 key 和 symbol 不同，保存 key（用于 Alpha）
+        displaySymbol: displaySymbol !== key ? displaySymbol : undefined
       };
     }
     
