@@ -41,6 +41,7 @@ class AppState {
     this.volatilityEngine = null;
     this.systemMonitor = null;
     this.webServer = null;
+    this.unsubscribePriceHook = null;
     
     this.isRunning = false;
   }
@@ -101,8 +102,7 @@ async function init() {
       app.configManager,
       app.storage,
       app.alertService,
-      app.targetMonitor,
-      app.volatilityMonitor
+      app.targetMonitor
     );
     
     // 6b. 初始化波动侦测引擎（独立运行）
@@ -114,6 +114,13 @@ async function init() {
       app.volatilityMonitor,
       app.wsConnector  // 注入 wsConnector，用于获取 Alpha 币种列表
     );
+
+    // 注册价格更新钩子：价格变化时实时触发波动检查
+    app.unsubscribePriceHook = app.storage.registerPriceUpdateHook((update) => {
+      app.volatilityEngine?.handlePriceUpdate(update).catch(err => {
+        console.error(`[Volatility] 实时检查失败：${err.message}`);
+      });
+    });
     
     // 7. 初始化系统监控
     console.log('[Init] 初始化系统监控...');
@@ -270,11 +277,6 @@ async function start() {
     console.log('[Start] 启动数据清理...');
     app.storage.startCleanup(5);
     
-    // 8. 持久化价格历史（定期）
-    setInterval(() => {
-      app.storage.persistPriceHistory();
-    }, 60000); // 每 1 分钟
-    
     app.isRunning = true;
     
     console.log('\n' + '='.repeat(60));
@@ -296,6 +298,18 @@ async function start() {
     
     // 打印初始状态
     printStatus();
+    
+    // 启动 Alpha 名称映射定时刷新（每小时整点零 5 分）
+    console.log('[Start] 启动 Alpha 名称映射定时刷新（每小时 :05 刷新）...');
+    setInterval(() => {
+      const now = new Date();
+      if (now.getMinutes() === 5 && now.getSeconds() < 10) {
+        console.log('[Alpha] 定时刷新 Alpha 名称映射...');
+        if (app.wsConnector?.loadAlphaTokenNameCache) {
+          app.wsConnector.loadAlphaTokenNameCache(true); // force=true
+        }
+      }
+    }, 5000); // 每 5 秒检查一次
     
   } catch (err) {
     console.error(`\n[Start] 启动失败：${err.message}`);
@@ -334,8 +348,13 @@ async function stop() {
   
   // 5. 持久化数据
   console.log('[Stop] 持久化数据...');
-  await app.storage.persistPriceHistory();
   await app.storage.alertStateStore.save();
+
+  // 6. 取消价格更新钩子
+  if (app.unsubscribePriceHook) {
+    app.unsubscribePriceHook();
+    app.unsubscribePriceHook = null;
+  }
   
   app.isRunning = false;
   
@@ -446,6 +465,9 @@ async function handleConfigChange(newConfig) {
   newSymbols.forEach(s => {
     app.volatilityMonitor?.init(s.symbol, s.volatility);
   });
+
+  // 刷新实时波动侦测范围（added 模式）
+  app.volatilityEngine?.refreshMonitoredSymbols();
   
   // 等待连接建立
   console.log('[ConfigChange] 等待 WebSocket 连接建立...');

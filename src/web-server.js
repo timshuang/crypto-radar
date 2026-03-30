@@ -602,7 +602,9 @@ class WebServer extends EventEmitter {
     
     // 获取实时价格
     const symbolPrices = enabledSymbols.map(s => {
-      const latest = this.storage?.getLatestPrice(s.symbol);
+      // Alpha 币种使用 ca 作为 key 查询，现货使用 symbol
+      const priceKey = s.source === 'alpha' ? s.ca : s.symbol;
+      const latest = this.storage?.getLatestPrice(priceKey);
       return {
         symbol: s.symbol,
         enabled: s.enabled,
@@ -656,7 +658,9 @@ class WebServer extends EventEmitter {
     
     const prices = {};
     symbols.forEach(s => {
-      const latest = this.storage?.getLatestPrice(s.symbol);
+      // Alpha 币种使用 ca 作为 key 查询，现货使用 symbol
+      const priceKey = s.source === 'alpha' ? s.ca : s.symbol;
+      const latest = this.storage?.getLatestPrice(priceKey);
       if (latest?.price) {
         prices[s.symbol] = latest.price;
         // 也存储不带 USDT 的版本方便查找
@@ -727,7 +731,9 @@ class WebServer extends EventEmitter {
     
     // 添加实时价格
     const symbolsWithPrice = symbols.map(s => {
-      const latest = this.storage?.getLatestPrice(s.symbol);
+      // Alpha 币种使用 ca 作为 key 查询，现货使用 symbol
+      const priceKey = s.source === 'alpha' ? s.ca : s.symbol;
+      const latest = this.storage?.getLatestPrice(priceKey);
       return {
         ...s,
         currentPrice: latest?.price || 0

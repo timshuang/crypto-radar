@@ -201,6 +201,14 @@ class AlertService extends EventEmitter {
     for (const item of this.failedQueue) {
       if (item.retryCount >= this.maxRetries) {
         console.warn(`[Alert] 告警丢弃 (重试超限): ${item.body}`);
+        
+        // 🔴 修复：丢弃前设置静默期，防止同一币种重复触发
+        if (item.type === 'volatility' && item.symbol && this.storage?.setAlertSilence) {
+          const key = `${item.symbol}_volatility`;
+          this.storage.setAlertSilence(key);
+          console.log(`[Alert] 已设置静默期：${key}`);
+        }
+        
         continue;
       }
 
@@ -262,7 +270,7 @@ class AlertService extends EventEmitter {
   /**
    * 发送波动告警
    */
-  async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null) {
+  async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null, windowMinutes = null, sourceType = null) {
     const title = '🌊 波动侦测';
     const body = `${symbol} 波动 ${(volatility || 0).toFixed(2)}% (阈值 ${(threshold || 0).toFixed(1)}%)\n区间：$${min?.toLocaleString() || 'N/A'} - $${max?.toLocaleString() || 'N/A'}`;
     
@@ -274,14 +282,18 @@ class AlertService extends EventEmitter {
       type: 'volatility'
     });
     
-    const windowMinutes = this.configManager?.config?.volatilityModule?.windowMinutes || 5;
+    // 使用传入的 windowMinutes，如果没有则从配置读取
+    const actualWindowMinutes = windowMinutes || this.configManager?.config?.volatilityModule?.windowMinutes || 5;
+    
+    // 使用传入的 sourceType，如果没有则通过 _getSourceType 获取
+    const actualSourceType = sourceType || this._getSourceType(symbol);
 
     // 优先使用波动计算阶段已经得出的方向；兜底时再从窗口起始价和当前价计算
     let direction = directionOverride;
     if (!direction) {
       const latestPrice = this.storage?.getLatestPrice(symbol);
       const currentPrice = latestPrice?.price ?? max;
-      const windowStats = this.storage?.getWindowStats(symbol, windowMinutes);
+      const windowStats = this.storage?.getWindowStats(symbol, actualWindowMinutes);
       const startPrice = windowStats?.startPrice ?? min;
       direction = currentPrice < startPrice ? 'down' : 'up';
     }
@@ -290,10 +302,10 @@ class AlertService extends EventEmitter {
     const alert = {
       symbol,
       source: 'volatility',
-      windowMinutes,
+      windowMinutes: actualWindowMinutes,
       changePercent: volatility,
       direction,
-      sourceType: this._getSourceType(symbol)
+      sourceType: actualSourceType
     };
     await this.sendExternalNotification(alert);
     

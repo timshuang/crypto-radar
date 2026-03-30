@@ -291,7 +291,10 @@ class VolatilityMonitor {
       return false;
     }
     
-    // 发送告警
+    // ⚠️ 关键修复：立即设置静默期（同步），防止竞态条件
+    this.storage.setAlertSilence(volatilityKey);
+    
+    // 发送告警（异步操作）
     const sent = await this.alertService.sendVolatilityAlert(
       symbol,
       volatility,
@@ -300,9 +303,6 @@ class VolatilityMonitor {
       threshold,
       direction
     );
-    
-    // 无论发送成功还是失败，都设置静默期（防止连续轰炸）
-    this.storage.setAlertSilence(volatilityKey);
     
     if (sent) {
       console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发`);

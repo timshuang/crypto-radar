@@ -292,6 +292,9 @@ class StorageManager {
     
     // 报警历史（内存缓存）
     this.alertHistory = [];
+    
+    // 价格更新钩子（用于实时波动侦测）
+    this.priceUpdateHooks = [];
   }
 
   _normalizeKey(key) {
@@ -313,9 +316,27 @@ class StorageManager {
     await this.priceHistoryStore.load();
     await this.alertHistoryStore.load();
     
-    // 恢复告警节流状态
+    // 恢复告警节流状态（清理过期数据）
     const silenceData = this.alertStateStore.get('silenceUntil', {});
-    this.throttle.fromJSON(silenceData);
+    const now = Date.now();
+    const cleanedSilenceData = {};
+    let expiredCount = 0;
+    
+    for (const [key, until] of Object.entries(silenceData)) {
+      if (until > now) {
+        cleanedSilenceData[key] = until;
+      } else {
+        expiredCount++;
+      }
+    }
+    
+    this.throttle.fromJSON(cleanedSilenceData);
+    
+    if (expiredCount > 0) {
+      this.alertStateStore.set('silenceUntil', cleanedSilenceData);
+      this.alertStateStore.save();
+      console.log(`[Storage] 清理 ${expiredCount} 条过期静默期数据`);
+    }
     
     // 恢复价格历史到内存缓冲区
     const priceData = this.priceHistoryStore.getAll();
@@ -395,7 +416,50 @@ class StorageManager {
     }
     
     const buffer = this.getPriceBuffer(normalizedKey);
+    
+    // 获取当前最新价格（用于判断是否变化）
+    const latest = buffer.getLatest();
+    const lastPrice = latest ? latest.price : null;
+    
     buffer.push(time, price, volume);
+    
+    // 价格变化时触发钩子（智能检查：价格不变不触发）
+    if (lastPrice === null || lastPrice !== price) {
+      const update = {
+        key: normalizedKey,
+        symbol: displaySymbol || this.getSymbolForCa(normalizedKey) || normalizedKey,
+        time,
+        price,
+        volume,
+        source: normalizedKey.startsWith('0x') ? 'alpha' : 'spot'
+      };
+      
+      // 异步触发所有注册的钩子（不阻塞主流程）
+      for (const hook of this.priceUpdateHooks) {
+        try {
+          hook(update);
+        } catch (err) {
+          console.error(`[Storage] 价格更新钩子执行失败: ${err.message}`);
+        }
+      }
+    }
+  }
+  
+  /**
+   * 注册价格更新钩子
+   * @param {Function} callback - 回调函数，参数为 {key, symbol, time, price, volume, source}
+   * @returns {Function} - 取消注册的函数
+   */
+  registerPriceUpdateHook(callback) {
+    this.priceUpdateHooks.push(callback);
+    
+    // 返回取消注册的函数
+    return () => {
+      const index = this.priceUpdateHooks.indexOf(callback);
+      if (index > -1) {
+        this.priceUpdateHooks.splice(index, 1);
+      }
+    };
   }
 
   /**

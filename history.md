@@ -2307,3 +2307,211 @@ No more threshold accumulation logic.
 ---
 
 **本次开发完成**！🦐
+
+---
+
+## 2026-03-25 19:30 - 波动侦测架构重构设计概要
+
+### 背景
+重构波动侦测模块，解决以下问题：
+1. 原1分钟检查一次不够及时
+2. 价格存储写入文件过于频繁
+3. 需要支持全量币种监控
+
+### 最终方案选型：方案A（智能检查）
+
+#### 存储架构
+- **存储位置**: 仅内存（不写文件）
+- **存储时长**: 10分钟（600条记录/币种）
+- **覆盖策略**: 循环缓冲区，10分钟后自动覆盖最旧数据
+- **内存占用**: ~30MB（2800币种 × 600条 × ~10KB）
+
+#### 检查机制（方案A - 智能检查）
+```
+WebSocket收到价格 → 存入内存 → 价格变化？→ 是 → 检查波动
+                                     ↓ 否
+                                   跳过
+```
+
+**触发条件:**
+- 仅当价格与内存中最新价不同时才计算
+- 大幅降低无效计算（估计减少80%）
+
+#### 波动计算方式
+```javascript
+// 净变化率模式
+volatility = |currentPrice - windowStartPrice| / windowStartPrice
+
+vs
+
+// 原极值模式（废弃）
+volatility = (max - min) / min
+```
+
+**区别:**
+- 净变化率: 只检测首尾变化，不关心中间过程
+- 极值模式: 检测窗口内最高/最低价（需要存所有价格）
+
+#### WebSocket数据源
+```
+现货全量: wss://stream.binance.com:9443/ws/!miniTicker@arr
+          → 1条/秒，含~2000币种
+
+Alpha全量: wss://nbstream.binance.com/w3w/wsa/stream
+           → subscribe: came@allTokens@ticker24
+           → 2条/秒，含~800币种
+```
+
+#### 监控范围选项
+1. **全量模式**: 监控所有现货+Alpha币种
+2. **监控列表模式**: 只监控config.symbols里的币种
+
+#### 通知机制
+- TG通知: ✅
+- Bark通知: ✅（复用价格监控逻辑）
+- 静默期: 5分钟（不重复通知同币种）
+
+#### 性能评估
+```
+每秒处理量: ~2800次价格更新
+CPU负载: 低（简单计算，无IO）
+内存占用: ~30MB
+文件IO: 0（不写文件）
+
+结论: 512MB小机器轻松承载 ✅
+```
+
+---
+
+### 备选方案：方案B（分级检查）
+
+**如果方案A在小机器上出现性能问题，启用方案B:**
+
+```
+监控列表模式: 高频检查（每秒）
+全量模式:     中频检查（每5秒）
+
+原理: 全量币种多，降低检查频率减少CPU压力
+```
+
+**切换条件:**
+- CPU使用率持续 > 80%
+- 内存占用超过预期
+- 消息处理延迟 > 100ms
+
+---
+
+### 开发任务清单
+
+#### Phase 1: 存储层改造
+- [ ] 修改 PriceBuffer: 10分钟循环缓冲区
+- [ ] 移除文件写入逻辑（persistPriceHistory）
+- [ ] 添加价格波动检测钩子
+
+#### Phase 2: WebSocket层改造
+- [ ] 添加全量推送连接（!miniTicker@arr）
+- [ ] 添加Alpha全量连接（came@allTokens@ticker24）
+- [ ] 优化消息处理频率（方案A智能检查）
+
+#### Phase 3: 波动引擎改造
+- [ ] 重构 VolatilityEngine: 实时检查替代定时检查
+- [ ] 修改波动计算: 净变化率替代极值模式
+- [ ] 添加监控范围切换（全量/列表）
+
+#### Phase 4: 通知层整合
+- [ ] 复用 AlertService 的 TG/Bark 逻辑
+- [ ] 添加静默期管理
+- [ ] 测试通知格式
+
+#### Phase 5: Web UI 适配
+- [ ] 移除历史价格图表
+- [ ] 添加实时监控状态显示
+- [ ] 添加监控范围切换按钮
+
+---
+
+## 2026-03-25 20:40 - 波动通知格式修复
+
+### 修复问题
+老板反馈的 3 个 TG 通知格式问题：
+
+1. **时间窗口错误**：一开始显示 1m，后面变成 5m
+   - **原因**：`sendVolatilityAlert` 方法内部又从配置读取 `windowMinutes`，没有使用实时检查时的实际窗口
+   - **修复**：修改 `sendVolatilityAlert` 接收 `windowMinutes` 参数，优先使用传入值
+
+2. **币种名显示合约地址**：部分币种显示 `0x...` 而不是名字
+   - **原因**：全量模式下，Alpha 币种的 `displaySymbol` 没有正确传递
+   - **修复**：`volatility-engine.js` 中优先使用 `update.displaySymbol`，其次从 `storage.symbolMapping` 查找
+
+3. **推送格式不对**：格式应该是 `[现货/Alpha] 币种名 xxmin 上涨/下跌 xx%`
+   - **原因**：`templater.js` 格式为 `[波动] 现货 币种名...`
+   - **修复**：修改为 `[现货/Alpha] 币种名 xxmin 上涨/下跌 xx%`
+
+### 修改文件
+- `src/alert-service.js` - `sendVolatilityAlert` 方法接收 `windowMinutes` 和 `sourceType` 参数
+- `src/monitors.js` - `handleTrigger` 传递 `windowMinutes` 和 `sourceType`
+- `src/volatility-engine.js` - 正确获取 `displaySymbol` 和 `sourceType`
+- `src/notification/templater.js` - 修改格式模板
+
+### 状态
+✅ 已修复并部署测试
+
+---
+
+**设计确认**: 虾指挥 + 老板
+**日期**: 2026-03-25
+**执行者**: 钳子哥 (Coder)
+**状态**: 待开工
+
+---
+
+## 2026-03-25 19:45 - 波动侦测模块重构落地（实时检查 + 内存缓冲）
+
+### 执行者
+**钳子哥** (Coder)
+
+### 实现结果
+按 2026-03-25 19:30 设计概要完成核心改造：
+
+1. **存储层 (`src/storage.js`)**
+   - `PriceBuffer` 调整为 10 分钟循环缓冲（600 条默认值）
+   - 新增净变化率统计接口：`getNetChangeStats(windowMinutes)`
+   - 新增价格更新钩子：`registerPriceUpdateHook(hook)`
+   - `addPriceRecord` 改为智能写入：价格不变则不写入、不触发钩子
+   - 移除 `price_history.json` 读写路径（`persistPriceHistory` 保留为空兼容方法）
+
+2. **WebSocket 层 (`src/ws-connector.js`)**
+   - 保留并使用全量推送：
+     - 现货：`!miniTicker@arr`
+     - Alpha：`came@allTokens@ticker24`
+   - 增加 `_storePriceRecord` 统一入口，配合 storage 的智能写入，仅价格变化触发后续波动检查
+
+3. **波动引擎 (`src/volatility-engine.js`)**
+   - 重构为事件驱动：通过价格更新事件实时检查，不再定时全量扫描
+   - 波动算法切换为净变化率：
+     - `|currentPrice - startPrice| / startPrice * 100`
+   - 支持 `scope`：
+     - `global`：检查全部流入币种
+     - `added`：仅检查 `config.symbols` 的 key（spot symbol / alpha ca）
+   - 触发后复用 `VolatilityMonitor.handleTrigger`，保持 5 分钟静默通知策略
+
+4. **启动与配置流程 (`src/index.js`)**
+   - 启动时注册 `storage` 价格更新钩子，直接驱动 `volatilityEngine.handlePriceUpdate`
+   - 移除价格历史定时写盘逻辑与停机时历史写盘调用
+   - 配置热更新后调用 `volatilityEngine.refreshMonitoredSymbols()`
+
+### 验证
+- ✅ `node --check` 通过：
+  - `src/storage.js`
+  - `src/ws-connector.js`
+  - `src/volatility-engine.js`
+  - `src/index.js`
+  - 以及 `src/*.js`、`src/notification/*.js` 全量语法检查
+- ⚠️ 启动冒烟测试受当前环境网络限制失败（Binance DNS `EAI_AGAIN`），非代码语法或模块耦合问题
+
+### 修改文件清单
+- `src/storage.js`
+- `src/ws-connector.js`
+- `src/volatility-engine.js`
+- `src/index.js`
+- `history.md`

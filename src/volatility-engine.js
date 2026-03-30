@@ -274,9 +274,12 @@ class VolatilityEngine {
         const symbol = symbolConfig.symbol;
         const source = symbolConfig.source;
         const ca = symbolConfig.ca;
-        const displayName = (source === 'alpha' && ca)
+        let displayName = (source === 'alpha' && ca)
           ? (this.storage.getSymbolForCa(ca) || symbolConfig.displayName || symbol)
           : (symbolConfig.displayName || symbol);
+        
+        // 规范化 symbol：去掉 USDT 后缀，确保静默期 key 一致
+        displayName = displayName.replace(/USDT$/i, '').toUpperCase();
         
         // 获取最新价格（Alpha 使用 ca 作为 key）
         const priceKey = (source === 'alpha' && ca) ? ca : symbol;
@@ -364,6 +367,69 @@ class VolatilityEngine {
     } finally {
       this.isRunning = false;
     }
+  }
+
+  /**
+   * 处理单个价格更新（实时波动检查）
+   * 由 Storage 的价格更新钩子触发
+   * @param {Object} update - {key, symbol, time, price, volume, source}
+   */
+  async handlePriceUpdate(update) {
+    // 检查波动模块开关
+    const config = this.configManager.config;
+    const volatilityModule = config.volatilityModule || {};
+    
+    if (!volatilityModule.enabled) {
+      return; // 波动模块关闭，不处理
+    }
+    
+    const scope = volatilityModule.scope || 'global';
+    
+    // 判断是否需要检查该币种
+    if (scope === 'added') {
+      // 监控列表模式：只检查 config.symbols 中的币种
+      const monitoredSymbols = (config.symbols || []).map(s => s.symbol);
+      if (!monitoredSymbols.includes(update.symbol)) {
+        return; // 不在监控列表中，跳过
+      }
+    }
+    // global 模式：所有价格流入都检查
+    
+    // 获取配置参数
+    const windowMinutes = volatilityModule.windowMinutes || 5;
+    const thresholdPercent = volatilityModule.thresholdPercent || 20;
+    
+    // 构建波动配置
+    const volatility = {
+      windowMinutes,
+      thresholdPercent,
+      enabled: true
+    };
+    
+    // 检查波动
+    const priceKey = update.key;
+    const volatilityResult = this.volatilityMonitor.check(priceKey, volatility);
+    
+    if (volatilityResult && volatilityResult.isTriggered) {
+      // 修复：使用正确的显示名称和来源
+      // 规范化 symbol：去掉 USDT 后缀，确保静默期 key 一致
+      const normalizedSymbol = update.symbol.replace(/USDT$/i, '').toUpperCase();
+      volatilityResult.symbol = normalizedSymbol;
+      volatilityResult.sourceType = update.source;
+      
+      console.log(`[Volatility] ${update.symbol} 实时触发：${volatilityResult.volatility?.toFixed(2)}%`);
+      
+      // 调用 handleTrigger 处理静默期和通知
+      await this.volatilityMonitor.handleTrigger(volatilityResult);
+    }
+  }
+  
+  /**
+   * 刷新监控币种列表（配置变更时调用）
+   */
+  refreshMonitoredSymbols() {
+    console.log('[Volatility] 监控列表已刷新');
+    // 下一次价格更新时会自动使用新的配置
   }
 
   /**

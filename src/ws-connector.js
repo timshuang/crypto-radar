@@ -281,6 +281,14 @@ class WSConnector {
     return subscriptions;
   }
 
+  /**
+   * 存储价格并执行智能检查（仅价格变化才继续触发后续钩子）
+   */
+  _storePriceRecord(key, time, price, volume = 0, displaySymbol = null) {
+    const result = this.dataManager.addPriceRecord(key, time, price, volume, displaySymbol);
+    return Boolean(result?.changed);
+  }
+
   // ==================== 价格监控组合流 ====================
 
   /**
@@ -463,19 +471,25 @@ class WSConnector {
       
       const { type } = connection.options;
       
-      // 现货全量推送（数组）
+      // 现货全量推送（数组，只保留 USDT 对）
       if (type === 'spot-full') {
         const messages = Array.isArray(msg) ? msg : [msg];
         
         for (const item of messages) {
           if (item.e === '24hrMiniTicker' || item.e === 'miniTicker') {
             const symbol = item.s;
+            
+            // 过滤：只处理 USDT 对
+            if (!symbol.endsWith('USDT')) {
+              continue; // 非 USDT 对直接跳过，不存入内存
+            }
+            
             const price = parseFloat(item.c);
             const volume = parseFloat(item.q) || 0;
             const time = item.E || Date.now();
             
             if (!isNaN(price)) {
-              this.dataManager.addPriceRecord(symbol, time, price, volume);
+              this._storePriceRecord(symbol, time, price, volume);
             }
           }
         }
@@ -490,7 +504,7 @@ class WSConnector {
           const time = data.E || Date.now();
           
           if (!isNaN(price)) {
-            this.dataManager.addPriceRecord(symbol, time, price, volume);
+            this._storePriceRecord(symbol, time, price, volume);
           }
         }
       }
@@ -530,11 +544,11 @@ class WSConnector {
               // 全量推送时动态建立映射
               if (ca && type === 'alpha-full') {
                 const oldSize = this.symbolCache.size;
-                if (hasResolvedSymbol) {
-                  // 只有拿到真实 symbol 后才建立映射，避免把数字 ID 写入缓存和存储
-                  this.symbolCache.set(ca, resolvedSymbol);
-                  this.dataManager.setSymbolMapping(resolvedSymbol, ca);
-                }
+                
+                // 即使只有数字 ID 也建立映射，避免显示 0x 地址
+                const symbolForMapping = hasResolvedSymbol ? resolvedSymbol : String(rawSymbol);
+                this.symbolCache.set(ca, symbolForMapping);
+                this.dataManager.setSymbolMapping(symbolForMapping, ca);
                 
                 // 调试日志：每 50 个打印一次
                 if ((oldSize === 0) || (this.symbolCache.size % 50 === 1)) {
@@ -544,7 +558,9 @@ class WSConnector {
               
               // 使用 ca 作为内部 key（如果有）
               const key = ca || resolvedSymbol;
-              this.dataManager.addPriceRecord(key, time, price, 0, hasResolvedSymbol ? resolvedSymbol : null);
+              // 传递 displaySymbol：优先使用 resolvedSymbol，其次使用 rawSymbol（数字 ID）
+              const displaySymbol = hasResolvedSymbol ? resolvedSymbol : String(rawSymbol);
+              this._storePriceRecord(key, time, price, 0, displaySymbol);
             }
           }
         }
@@ -555,15 +571,19 @@ class WSConnector {
           const combinedData = msg.data || msg;
           if (combinedData.s && (combinedData.p || combinedData.lp)) {
             const alphaId = this._normalizeAlphaId(combinedData.s) || this._extractAlphaIdFromStream(msg.stream);
-            const ca = this._resolveAlphaCaById(alphaId, connection);
+            let ca = this._resolveAlphaCaById(alphaId, connection);
             const price = parseFloat(combinedData.p || combinedData.lp);
             const volume = parseFloat(combinedData.q) || 0;
             const time = combinedData.E || combinedData.T || Date.now();
 
             if (!isNaN(price) && ca) {
+              // 清理 ca 中的@56 后缀（与全量推送保持一致，避免去重失败）
+              if (ca.includes('@')) {
+                ca = ca.split('@')[0];
+              }
               const subscription = this._findAlphaSubscriptionById(alphaId, connection);
               const displaySymbol = subscription?.symbol || alphaId;
-              this.dataManager.addPriceRecord(ca, time, price, volume, displaySymbol);
+              this._storePriceRecord(ca, time, price, volume, displaySymbol);
             } else if (!ca && connection.messageCount % 200 === 1) {
               console.warn(`[WS] ${connection.name} Alpha 组合流未找到 ca 映射，跳过存储: symbol=${combinedData.s}, stream=${msg.stream || 'N/A'}`);
             }
