@@ -53,7 +53,8 @@ class NotificationService {
         try {
           const barkConfig = {
             key: process.env.BARK_KEY || config.bark.deviceKey,
-            sound: process.env.BARK_SOUND || config.bark.sound || 'minuet',
+            soundNormal: process.env.BARK_SOUND_NORMAL || config.bark.soundNormal || 'minuet',
+            soundCritical: process.env.BARK_SOUND_CRITICAL || config.bark.soundCritical || 'alarm',
             volume: parseInt(process.env.BARK_VOLUME) || config.bark.volume || 5,
             serverUrl: config.bark.serverUrl || 'https://api.day.app'
           };

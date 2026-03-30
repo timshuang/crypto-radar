@@ -20,8 +20,13 @@ class BarkSender {
     const encodedTitle = encodeURIComponent(message.title);
     const encodedContent = encodeURIComponent(message.content);
     
+    // 根据模式选择铃声：普通模式用 soundNormal，紧急模式用 soundCritical
+    const sound = mode === 'critical' 
+      ? (config.soundCritical || config.sound || 'alarm')
+      : (config.soundNormal || config.sound || 'minuet');
+    
     // 基础参数
-    let url = `${baseUrl}/${config.key}/${encodedTitle}/${encodedContent}?sound=${encodeURIComponent(config.sound)}`;
+    let url = `${baseUrl}/${config.key}/${encodedTitle}/${encodedContent}?sound=${encodeURIComponent(sound)}`;
     
     // 紧急模式参数
     if (mode === 'critical') {

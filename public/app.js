@@ -125,7 +125,7 @@ async function loadDashboard() {
     
     // 更新状态
     document.getElementById('uptime').textContent = formatUptime(data.uptime);
-    document.getElementById('memory').textContent = formatMemory(data.memory.heapUsed);
+    document.getElementById('memory').textContent = formatMemory(data.memory.rss);
     document.getElementById('symbols-count').textContent = data.symbolsCount;
     document.getElementById('enabled-count').textContent = data.enabledCount;
     
@@ -663,7 +663,8 @@ async function loadSettings() {
     if (data.bark) {
       document.getElementById('bark-device-key').value = data.bark.deviceKey || '';
       document.getElementById('bark-server-url').value = data.bark.serverUrl || 'https://api.day.app';
-      document.getElementById('bark-sound').value = data.bark.sound || 'minuet';
+      document.getElementById('bark-sound-normal').value = data.bark.soundNormal || 'minuet';
+      document.getElementById('bark-sound-critical').value = data.bark.soundCritical || 'alarm';
       document.getElementById('bark-group').value = data.bark.group || 'crypto_radar';
     }
     
@@ -686,7 +687,8 @@ document.getElementById('bark-notification-form').addEventListener('submit', asy
   const bark = {
     deviceKey: document.getElementById('bark-device-key').value.trim(),
     serverUrl: document.getElementById('bark-server-url').value.trim(),
-    sound: document.getElementById('bark-sound').value.trim(),
+    soundNormal: document.getElementById('bark-sound-normal').value.trim() || 'minuet',
+    soundCritical: document.getElementById('bark-sound-critical').value.trim() || 'alarm',
     group: document.getElementById('bark-group').value.trim()
   };
   
@@ -1685,9 +1687,13 @@ async function loadNotificationConfig() {
     if (barkKeyEl) {
       barkKeyEl.value = config.bark.deviceKey === '***' ? '' : config.bark.deviceKey;
     }
-    const barkSoundEl = document.getElementById('bark-sound');
-    if (barkSoundEl) {
-      barkSoundEl.value = config.bark.sound;
+    const barkSoundNormalEl = document.getElementById('bark-sound-normal');
+    if (barkSoundNormalEl) {
+      barkSoundNormalEl.value = config.bark.soundNormal || 'minuet';
+    }
+    const barkSoundCriticalEl = document.getElementById('bark-sound-critical');
+    if (barkSoundCriticalEl) {
+      barkSoundCriticalEl.value = config.bark.soundCritical || 'alarm';
     }
     const barkVolumeEl = document.getElementById('bark-volume');
     if (barkVolumeEl) {
@@ -1728,7 +1734,8 @@ async function saveBarkConfig() {
       bark: {
         enabled: true, // Bark 开关已移除，默认启用
         deviceKey: document.getElementById('bark-key').value.trim(),
-        sound: document.getElementById('bark-sound').value.trim(),
+        soundNormal: document.getElementById('bark-sound-normal').value.trim() || 'minuet',
+        soundCritical: document.getElementById('bark-sound-critical').value.trim() || 'alarm',
         volume: parseInt(document.getElementById('bark-volume').value)
       }
     };
@@ -1781,7 +1788,8 @@ async function saveNotificationConfig() {
       bark: {
         enabled: true, // Bark 开关已移除，默认启用
         deviceKey: document.getElementById('bark-key').value.trim(),
-        sound: document.getElementById('bark-sound').value.trim(),
+        soundNormal: document.getElementById('bark-sound-normal').value.trim() || 'minuet',
+        soundCritical: document.getElementById('bark-sound-critical').value.trim() || 'alarm',
         volume: parseInt(document.getElementById('bark-volume').value)
       },
       telegram: {

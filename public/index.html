@@ -255,9 +255,15 @@
             
             <div class="form-row">
               <div class="form-group">
-                <label for="bark-sound">铃声名称</label>
-                <input type="text" id="bark-sound" placeholder="minuet" value="minuet">
-                <p class="hint">Bark 内置铃声或自定义铃声文件名</p>
+                <label for="bark-sound-normal">普通模式铃声</label>
+                <input type="text" id="bark-sound-normal" placeholder="minuet" value="minuet">
+                <p class="hint">平时使用的铃声（如：minuet, bell, glass 等）</p>
+              </div>
+              
+              <div class="form-group">
+                <label for="bark-sound-critical">紧急模式铃声</label>
+                <input type="text" id="bark-sound-critical" placeholder="alarm" value="alarm">
+                <p class="hint">睡眠模式使用的强烈铃声（如：alarm, sirens, military 等）</p>
               </div>
               
               <div class="form-group">

@@ -1464,7 +1464,8 @@ class WebServer extends EventEmitter {
     
     // 从环境变量读取敏感配置（优先于 config.json）
     const barkKey = process.env.BARK_KEY || config.bark?.deviceKey || '';
-    const barkSound = process.env.BARK_SOUND || config.bark?.sound || 'minuet';
+    const barkSoundNormal = process.env.BARK_SOUND_NORMAL || config.bark?.soundNormal || 'minuet';
+    const barkSoundCritical = process.env.BARK_SOUND_CRITICAL || config.bark?.soundCritical || 'alarm';
     const barkVolume = parseInt(process.env.BARK_VOLUME) || config.bark?.volume || 5;
     const tgBotToken = process.env.TG_BOT_TOKEN || config.telegram?.botToken || '';
     const tgChatId = process.env.TG_CHAT_ID || config.telegram?.chatId || '';
@@ -1476,7 +1477,8 @@ class WebServer extends EventEmitter {
           enabled: config.bark?.enabled || false,
           deviceKey: barkKey,  // 直接显示真实值，不脱敏
           serverUrl: config.bark?.serverUrl || 'https://api.day.app',
-          sound: barkSound,
+          soundNormal: barkSoundNormal,
+          soundCritical: barkSoundCritical,
           volume: barkVolume,
           group: config.bark?.group || 'crypto_radar',
           monitorEnabled: config.bark?.monitorEnabled !== false, // 默认 true
@@ -1591,13 +1593,20 @@ class WebServer extends EventEmitter {
         if (data.bark.volume !== undefined) {
           envUpdates.BARK_VOLUME = data.bark.volume.toString();
         }
+        if (data.bark.soundNormal !== undefined) {
+          envUpdates.BARK_SOUND_NORMAL = data.bark.soundNormal;
+        }
+        if (data.bark.soundCritical !== undefined) {
+          envUpdates.BARK_SOUND_CRITICAL = data.bark.soundCritical;
+        }
         
-        // 非敏感字段保留在 config.json
+        // 非敏感字段保留在 config.json（铃声使用占位符）
         config.bark = {
           ...config.bark,
           enabled: data.bark?.enabled ?? false,
           deviceKey: 'ENV_BARK_KEY',  // 占位符
-          sound: 'ENV_BARK_SOUND',    // 占位符
+          soundNormal: 'ENV_BARK_SOUND_NORMAL',  // 占位符
+          soundCritical: 'ENV_BARK_SOUND_CRITICAL',  // 占位符
           volume: parseInt(data.bark?.volume) || 5,
           serverUrl: data.bark?.serverUrl ?? 'https://api.day.app',
           group: data.bark?.group ?? 'crypto_radar'
