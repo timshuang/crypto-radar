@@ -191,13 +191,26 @@ async function start() {
         alphaId: s.alphaId
       }));
     
-    console.log(`[Start] 价格监控：${enabledSpotSymbols.length} 现货 + ${enabledAlphaTokens.length} Alpha = ${enabledSymbols.length} 总币种 (enabled: true)`);
+    // 价格监控订阅所有监控列表币种（不管 enabled 状态），确保所有币种都有价格数据
+    const allSpotSymbols = allSymbols
+      .filter(s => s.source === 'spot')
+      .map(s => s.symbol);
     
-    if (enabledSpotSymbols.length > 0) {
-      app.wsConnector.connectPriceMonitorSpot(enabledSpotSymbols);
+    const allAlphaTokens = allSymbols
+      .filter(s => s.source === 'alpha')
+      .map(s => ({
+        symbol: s.symbol,
+        ca: s.ca,
+        alphaId: s.alphaId
+      }));
+    
+    console.log(`[Start] 价格监控：${allSpotSymbols.length} 现货 + ${allAlphaTokens.length} Alpha = ${allSymbols.length} 总币种（监控列表所有币种，不管 enabled 状态）`);
+    
+    if (allSpotSymbols.length > 0) {
+      app.wsConnector.connectPriceMonitorSpot(allSpotSymbols);
     }
-    if (enabledAlphaTokens.length > 0) {
-      app.wsConnector.connectPriceMonitorAlpha(enabledAlphaTokens);
+    if (allAlphaTokens.length > 0) {
+      app.wsConnector.connectPriceMonitorAlpha(allAlphaTokens);
     }
     
     // ========== 波动侦测模块（看所有监控列表币种，不管 enabled 状态）==========
@@ -376,13 +389,12 @@ async function handleConfigChange(newConfig) {
   
   console.log('[ConfigChange] 检测到配置变更，重新连接 WebSocket...');
   
-  // ========== 价格监控模块（只看 enabled: true 的币种）==========
-  const enabledSymbols = newSymbols.filter(s => s.enabled);
-  const enabledSpotSymbols = enabledSymbols
+  // ========== 价格监控模块（订阅所有监控列表币种，不管 enabled 状态）==========
+  const allSpotSymbols = newSymbols
     .filter(s => s.source === 'spot')
     .map(s => s.symbol);
   
-  const enabledAlphaTokens = enabledSymbols
+  const allAlphaTokens = newSymbols
     .filter(s => s.source === 'alpha')
     .map(s => ({
       symbol: s.symbol,
@@ -390,17 +402,17 @@ async function handleConfigChange(newConfig) {
       alphaId: s.alphaId
     }));
   
-  console.log(`[ConfigChange] 价格监控：${enabledSpotSymbols.length} 现货 + ${enabledAlphaTokens.length} Alpha (enabled: true)`);
+  console.log(`[ConfigChange] 价格监控：${allSpotSymbols.length} 现货 + ${allAlphaTokens.length} Alpha（监控列表所有币种，不管 enabled 状态）`);
   
   // 重新连接价格监控
   app.wsConnector.disconnect('priceMonitorSpot');
   app.wsConnector.disconnect('priceMonitorAlpha');
   
-  if (enabledSpotSymbols.length > 0) {
-    app.wsConnector.connectPriceMonitorSpot(enabledSpotSymbols);
+  if (allSpotSymbols.length > 0) {
+    app.wsConnector.connectPriceMonitorSpot(allSpotSymbols);
   }
-  if (enabledAlphaTokens.length > 0) {
-    app.wsConnector.connectPriceMonitorAlpha(enabledAlphaTokens);
+  if (allAlphaTokens.length > 0) {
+    app.wsConnector.connectPriceMonitorAlpha(allAlphaTokens);
   }
   
   // ========== 波动侦测模块（看所有监控列表币种，不管 enabled 状态）==========

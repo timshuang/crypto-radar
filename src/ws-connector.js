@@ -188,6 +188,7 @@ class WSConnector {
 
         for (const token of tokens) {
           if (!token?.alphaId || !token?.symbol) continue;
+          if (token.offline) continue;  // 跳过 offline 代币
           const numericId = token.alphaId.replace(/^ALPHA_/, '');
           if (numericId) {
             nameCache.set(numericId, token.symbol);
@@ -198,7 +199,7 @@ class WSConnector {
           this.alphaTokenNameCache = nameCache;
           this.alphaTokenNameCacheTime = Date.now();
           this._reconcileAlphaSymbolCache();
-          console.log(`[WS] Alpha 名称映射已加载：${nameCache.size} 个`);
+          console.log(`[WS] Alpha 名称映射已加载：${nameCache.size} 个 online 代币`);
         }
       } catch (err) {
         console.warn(`[WS] 加载 Alpha 名称映射失败：${err.message}`);
@@ -534,6 +535,11 @@ class WSConnector {
 
             const resolvedSymbol = this._resolveAlphaSymbol(rawSymbol);
             const hasResolvedSymbol = resolvedSymbol && !this._isAlphaNumericId(resolvedSymbol);
+            
+            // 过滤：不在 online 映射中的代币（offline 或未知代币）
+            if (!hasResolvedSymbol) {
+              continue;
+            }
             
             // 价格字段：全量推送使用 'p'，组合流使用 'lp'
             const priceValue = type === 'alpha-full' ? token.p : token.lp;

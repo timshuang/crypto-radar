@@ -41,6 +41,7 @@ class PriceBuffer {
 
   /**
    * 获取滑动窗口内的最高价和最低价
+   * 关键：必须填满整个时间窗口后才能计算波动
    */
   getWindowStats(windowMinutes) {
     const now = Math.floor(Date.now() / 1000);
@@ -49,27 +50,42 @@ class PriceBuffer {
     let min = Infinity;
     let max = -Infinity;
     let found = false;
-    let startPrice = null;
-    let endPrice = null;
+    let firstTime = null;   // 窗口内最早时间
+    let lastTime = null;    // 窗口内最晚时间（最新）
+    let startPrice = null;  // 最早价格
+    let endPrice = null;    // 最新价格
 
     // 从后向前遍历（最新的数据）
     for (let i = 0; i < this.count; i++) {
       const idx = (this.head - 1 - i + this.maxSize) % this.maxSize;
       const time = this.times[idx];
       
-      if (time < windowStart) break;
+      if (time < windowStart) break;  // 超出窗口，停止
+      
+      if (lastTime === null) {
+        lastTime = time;      // 最新时间
+        endPrice = this.prices[idx];  // 最新价格
+      }
+      firstTime = time;       // 最早时间
+      startPrice = this.prices[idx];  // 最早价格
       
       const price = this.prices[idx];
-      if (endPrice === null) {
-        endPrice = price;
-      }
-      startPrice = price;
       if (price < min) min = price;
       if (price > max) max = price;
       found = true;
     }
 
-    return found ? { min, max, startPrice, endPrice } : null;
+    if (!found) return null;
+    
+    // 关键：检查时间跨度是否满足窗口要求（必须填满窗口）
+    const actualSpan = lastTime - firstTime;
+    const requiredSpan = windowMinutes * 60;
+    
+    if (actualSpan < requiredSpan) {
+      return null;  // 数据不足，窗口未填满
+    }
+
+    return { min, max, startPrice, endPrice };
   }
 
   /**
@@ -277,7 +293,7 @@ class StorageManager {
     
     // 初始化存储文件
     this.alertStateStore = new JsonStore(path.join(this.dataDir, 'alert_state.json'));
-    this.priceHistoryStore = new JsonStore(path.join(this.dataDir, 'price_history.json'));
+    // priceHistoryStore 已移除 - 重构后只使用内存缓存
     this.alertHistoryStore = new JsonStore(path.join(this.dataDir, 'alert_history.json'));
     
     // 内存中的价格缓冲区（按币种）
@@ -313,7 +329,7 @@ class StorageManager {
     
     // 加载持久化数据
     await this.alertStateStore.load();
-    await this.priceHistoryStore.load();
+    // priceHistoryStore 已移除 - 重构后只使用内存缓存，不恢复历史价格
     await this.alertHistoryStore.load();
     
     // 恢复告警节流状态（清理过期数据）
@@ -338,29 +354,12 @@ class StorageManager {
       console.log(`[Storage] 清理 ${expiredCount} 条过期静默期数据`);
     }
     
-    // 恢复价格历史到内存缓冲区
-    const priceData = this.priceHistoryStore.getAll();
-    for (const [storedKey, data] of Object.entries(priceData)) {
-      if (data && Array.isArray(data.records)) {
-        // 统一使用内部 key 恢复；兼容旧格式（displaySymbol 作为对象 key，_key 为内部 key）
-        const internalKey = this._normalizeKey(data._key || storedKey);
-        
-        const buffer = new PriceBuffer(this.maxRecords);
-        buffer.fromArray(data.records);
-        this.priceBuffers.set(internalKey, buffer);
-        
-        // 仅从新格式的 displaySymbol 字段恢复映射。
-        // 旧格式的对象 key 可能已经错乱，不能再拿它回灌 symbolMapping。
-        if (data.displaySymbol && data.displaySymbol !== internalKey) {
-          this.setSymbolMapping(data.displaySymbol, internalKey);
-        }
-      }
-    }
+    // 价格历史不再从文件恢复 - 重构后只使用内存缓存，重启后从0开始
     
     // 恢复报警历史
     this.alertHistory = this.alertHistoryStore.get('history', []);
     
-    console.log(`[Storage] 初始化完成，恢复 ${this.priceBuffers.size} 个币种的历史数据，${this.alertHistory.length} 条报警记录`);
+    console.log(`[Storage] 初始化完成，${this.priceBuffers.size} 个币种价格缓存（纯内存模式），${this.alertHistory.length} 条报警记录`);
   }
 
   /**
@@ -501,23 +500,10 @@ class StorageManager {
 
   /**
    * 持久化价格历史（批量）
+   * 已废弃：重构后只使用内存缓存，不写入文件
    */
   async persistPriceHistory() {
-    const priceData = {};
-    
-    for (const [key, buffer] of this.priceBuffers.entries()) {
-      const displaySymbol = this.getSymbolForCa(key) || key;
-      
-      priceData[key] = {
-        lastUpdate: Date.now(),
-        latestPrice: buffer.getLatest()?.price || 0,
-        records: buffer.toArray(),
-        displaySymbol: displaySymbol !== key ? displaySymbol : undefined
-      };
-    }
-    
-    this.priceHistoryStore.data = priceData;
-    await this.priceHistoryStore.save();
+    // 空实现 - 价格数据只保留在内存，重启后从0开始
   }
 
   /**
@@ -690,10 +676,9 @@ class StorageManager {
         }
       }
       
-      // 持久化价格历史
-      this.persistPriceHistory();
+      // 价格历史不再持久化 - 重构后只使用内存缓存
       
-      console.log(`[Storage] 定期清理完成`);
+      console.log(`[Storage] 定期清理完成（纯内存模式）`);
     }, intervalMinutes * 60 * 1000);
   }
 

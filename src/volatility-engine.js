@@ -110,59 +110,54 @@ class VolatilityEngine {
     console.log(`[Volatility] 启动，检查间隔：${intervalMinutes} 分钟`);
     
     // 等待 WebSocket 数据流入后再开始第一次检查（方案 2）
-    if (this.wsConnector && this.wsConnector.symbolCache) {
-      const initialSize = this.wsConnector.symbolCache.size;
-      console.log(`[Volatility] 当前 symbolCache: ${initialSize} 个 Alpha 币种`);
+    // 修复：不依赖 symbolCache，而是检查是否有实际价格数据
+    const hasPriceData = this.storage && this.storage.priceBuffers && this.storage.priceBuffers.size > 0;
+    
+    if (!hasPriceData) {
+      // 无价格数据，发送等待通知
+      console.log(`[Volatility] 等待价格数据流入...`);
       
-      if (initialSize === 0) {
-        // symbolCache 为空，发送等待通知
-        console.log(`[Volatility] 等待 Alpha 数据流入...`);
-        
-        if (this.alertService) {
-          this.alertService.sendTextToTelegram('🌊 波动侦测启动中\n\n正在等待 Alpha 数据流入...\n请稍候，预计 10-30 秒').catch(err => {
-            console.error('[Volatility] 发送等待通知失败:', err.message);
-          });
-        }
-        
-        // 轮询检查 symbolCache，有数据后再开始
-        const checkInterval = setInterval(() => {
-          if (this.wsConnector.symbolCache.size > 0) {
-            clearInterval(checkInterval);
-            const count = this.wsConnector.symbolCache.size;
-            console.log(`[Volatility] Alpha 数据已就绪 (${count} 个币种)，开始第一次检查...`);
-            
-            // 发送就绪通知
-            if (this.alertService) {
-              this.alertService.sendTextToTelegram(`✅ Alpha 数据已就绪\n\n已收录 ${count} 个 Alpha 币种\n开始波动检查...`).catch(err => {
-                console.error('[Volatility] 发送就绪通知失败:', err.message);
-              });
-            }
-            
-            this._runCheck();
-          }
-        }, 2000);
-        
-        // 超时保护：30 秒后无论有没有数据都开始检查
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          if (this.wsConnector.symbolCache.size === 0) {
-            console.warn(`[Volatility] 等待 Alpha 数据超时，直接开始检查（symbolCache 为空）`);
-            if (this.alertService) {
-              this.alertService.sendTextToTelegram('⚠️ 等待 Alpha 数据超时\n\n直接开始检查（仅现货）\nAlpha 数据可能延迟').catch(err => {
-                console.error('[Volatility] 发送超时通知失败:', err.message);
-              });
-            }
-          }
-          this._runCheck();
-        }, 30000);
-      } else {
-        // symbolCache 已有数据，直接开始
-        console.log(`[Volatility] Alpha 数据已就绪 (${initialSize} 个币种)，开始第一次检查...`);
-        this._runCheck();
+      if (this.alertService) {
+        this.alertService.sendTextToTelegram('🌊 波动侦测启动中\n\n正在等待价格数据流入...\n请稍候，预计 10-30 秒').catch(err => {
+          console.error('[Volatility] 发送等待通知失败:', err.message);
+        });
       }
+      
+      // 轮询检查 priceBuffers，有数据后再开始
+      const checkInterval = setInterval(() => {
+        if (this.storage.priceBuffers.size > 0) {
+          clearInterval(checkInterval);
+          const count = this.storage.priceBuffers.size;
+          console.log(`[Volatility] 价格数据已就绪 (${count} 个币种)，开始第一次检查...`);
+          
+          // 发送就绪通知
+          if (this.alertService) {
+            this.alertService.sendTextToTelegram(`✅ 价格数据已就绪\n\n已收录 ${count} 个币种\n开始波动检查...`).catch(err => {
+              console.error('[Volatility] 发送就绪通知失败:', err.message);
+            });
+          }
+          
+          this._runCheck();
+        }
+      }, 2000);
+      
+      // 超时保护：30 秒后无论有没有数据都开始检查
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (this.storage.priceBuffers.size === 0) {
+          console.warn(`[Volatility] 等待价格数据超时，直接开始检查`);
+          if (this.alertService) {
+            this.alertService.sendTextToTelegram('⚠️ 等待价格数据超时\n\n直接开始检查\n价格数据可能延迟').catch(err => {
+              console.error('[Volatility] 发送超时通知失败:', err.message);
+            });
+          }
+        }
+        this._runCheck();
+      }, 30000);
     } else {
-      // 没有 wsConnector，直接开始
-      console.log('[Volatility] 无 wsConnector，直接开始检查');
+      // 已有价格数据，直接开始
+      const count = this.storage.priceBuffers.size;
+      console.log(`[Volatility] 价格数据已就绪 (${count} 个币种)，开始第一次检查...`);
       this._runCheck();
     }
     
