@@ -658,22 +658,20 @@ async function loadSettings() {
   try {
     const result = await api('/settings');
     const data = result.data || {};
+
+    const setValueIfExists = (id, value) => {
+      const el = document.getElementById(id);
+      if (el && value !== undefined && value !== null) {
+        el.value = value;
+      }
+    };
     
-    // Bark 配置
-    if (data.bark) {
-      document.getElementById('bark-device-key').value = data.bark.deviceKey || '';
-      document.getElementById('bark-server-url').value = data.bark.serverUrl || 'https://api.day.app';
-      document.getElementById('bark-sound-normal').value = data.bark.soundNormal || 'minuet';
-      document.getElementById('bark-sound-critical').value = data.bark.soundCritical || 'alarm';
-      document.getElementById('bark-group').value = data.bark.group || 'crypto_radar';
-    }
-    
-    // 系统设置
+    // 系统设置（这里只处理系统参数；通知配置由 loadNotificationConfig 负责）
     if (data.settings) {
-      document.getElementById('check-interval').value = data.settings.checkIntervalMinutes || 1;
-      document.getElementById('silence-interval').value = data.settings.alertSilenceMinutes || 5;
-      document.getElementById('max-records').value = data.settings.maxPriceRecordsPerSymbol || 1440;
-      document.getElementById('max-symbols').value = data.settings.maxSymbols || 20;
+      setValueIfExists('check-interval', data.settings.checkIntervalMinutes ?? 1);
+      setValueIfExists('silence-interval', data.settings.alertSilenceMinutes ?? 5);
+      setValueIfExists('max-records', data.settings.maxPriceRecordsPerSymbol ?? 720);
+      // maxSymbols 已移除 - 不再限制监控币种数量
     }
   } catch (err) {
     console.error('加载设置失败:', err);
@@ -710,8 +708,8 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
   const settings = {
     checkIntervalMinutes: parseInt(document.getElementById('check-interval').value),
     alertSilenceMinutes: parseInt(document.getElementById('silence-interval').value),
-    maxPriceRecordsPerSymbol: parseInt(document.getElementById('max-records').value),
-    maxSymbols: parseInt(document.getElementById('max-symbols').value)
+    maxPriceRecordsPerSymbol: parseInt(document.getElementById('max-records').value)
+    // maxSymbols 已移除 - 不再限制监控币种数量
   };
   
   try {
@@ -719,9 +717,9 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
       method: 'PUT',
       body: JSON.stringify({ settings })
     });
-    alert('系统设置已保存');
+    showToast('系统设置已保存', 'success');
   } catch (err) {
-    alert('保存失败：' + err.message);
+    showToast('保存失败：' + err.message, 'error');
   }
 });
 

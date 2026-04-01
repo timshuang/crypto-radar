@@ -21,6 +21,8 @@ body {
 
 /* 导航栏 */
 .navbar {
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -32,9 +34,22 @@ body {
 }
 
 .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 1.5em;
   font-weight: bold;
   color: #00d9ff;
+}
+
+.logo-icon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 6px;
+  display: inline-block;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 217, 255, 0.25);
 }
 
 .nav-links {
@@ -57,8 +72,15 @@ body {
 }
 
 /* 页面 */
+#main-content {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .page {
   display: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .page.active {
@@ -78,11 +100,13 @@ h2 {
 
 /* 卡片 */
 .card {
+  width: 100%;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 10px;
   padding: 20px;
   margin-bottom: 20px;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
 }
 
 .card-header {
@@ -377,7 +401,7 @@ h2 {
 
 /* 表单 */
 .settings-form {
-  max-width: 500px;
+  width: 100%;
 }
 
 .form-group {
@@ -1310,11 +1334,14 @@ input:checked + .toggle-slider:before {
 }
 
 /* 通知设置页面样式（现在在设置页面内） */
-#settings .card {
+#settings .card,
+#alerts .card {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 20px;
   background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
   border: 1px solid rgba(148, 163, 184, 0.1);
   border-radius: 16px;
-  padding: 24px;
   margin-bottom: 20px;
 }
 
@@ -1322,6 +1349,11 @@ input:checked + .toggle-slider:before {
   font-size: 24px;
   margin-bottom: 24px;
   color: #f1f5f9;
+}
+
+/* 明确 Bark / Telegram 标题字号一致 */
+#settings .settings-top-grid .card h2 {
+  font-size: 24px;
 }
 
 #settings h3 {
@@ -1341,12 +1373,86 @@ input:checked + .toggle-slider:before {
 
 .form-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* Bark API Key 更短 */
+#bark-key {
+  width: min(100%, 280px);
+}
+
+/* Bark 三项参数同一水平线下更紧凑 */
+#bark-notification-form .form-row .form-group input {
+  width: 100%;
+  max-width: 180px;
+}
+
+#bark-notification-form .form-row .form-group .hint {
+  max-width: 220px;
+}
+
+/* 左右两栏表单统一：纵向布局 + 按钮贴底对齐 */
+#bark-notification-form,
+#telegram-notification-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Bot Token 单独放宽，保证可读性 */
+#tg-token {
+  width: min(100%, 420px) !important;
+}
+
+#tg-chat-id {
+  width: min(100%, 185px) !important;
+}
+
+#telegram-notification-form .tg-toggle-row {
+  margin-top: 0;
+  margin-bottom: 2px;
+  transform: translateY(5px);
+}
+
+#telegram-notification-form .checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#telegram-notification-form .checkbox-label input[type="checkbox"] {
+  margin: 0;
+  vertical-align: middle;
+}
+
+#telegram-notification-form .tg-actions {
+  margin-top: auto;
+  flex-wrap: wrap;
+  transform: translateY(-8px);
+}
+
+/* 两栏按钮区节奏统一（按钮组贴底后保留上方呼吸） */
+#bark-notification-form .form-actions,
+#telegram-notification-form .form-actions {
+  padding-top: 8px;
+  margin-top: auto;
+}
+
+#telegram-notification-form .form-actions .btn {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 @media (max-width: 768px) {
   .form-row {
+    grid-template-columns: 1fr;
+  }
+
+
+  .settings-top-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1369,7 +1475,7 @@ input:checked + .toggle-slider:before {
 
 #settings input[type="text"],
 #settings input[type="number"] {
-  width: 100%;
+  width: min(100%, 280px);
   padding: 10px 14px;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -1377,6 +1483,17 @@ input:checked + .toggle-slider:before {
   color: #f1f5f9;
   font-size: 14px;
   transition: all 0.2s;
+}
+
+/* 设置页上半区：Bark / Telegram 左右布局 */
+.settings-top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.settings-top-grid .card {
+  margin-bottom: 0;
 }
 
 #settings input[type="text"]:focus,

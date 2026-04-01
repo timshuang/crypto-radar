@@ -1461,14 +1461,28 @@ class WebServer extends EventEmitter {
     if (!config) {
       return { success: false, error: '配置未加载' };
     }
+
+    // 占位符识别（避免把 ENV_*/YOUR_* 这类模板值回显到 UI）
+    const isPlaceholder = (v) => {
+      if (!v || typeof v !== 'string') return false;
+      return v.startsWith('ENV_') || v.startsWith('YOUR_') || v.endsWith('_HERE');
+    };
+    const pickRealValue = (...values) => {
+      for (const v of values) {
+        if (v === undefined || v === null || v === '') continue;
+        if (typeof v === 'string' && isPlaceholder(v)) continue;
+        return v;
+      }
+      return '';
+    };
     
-    // 从环境变量读取敏感配置（优先于 config.json）
-    const barkKey = process.env.BARK_KEY || config.bark?.deviceKey || '';
-    const barkSoundNormal = process.env.BARK_SOUND_NORMAL || config.bark?.soundNormal || 'minuet';
-    const barkSoundCritical = process.env.BARK_SOUND_CRITICAL || config.bark?.soundCritical || 'alarm';
+    // 从环境变量读取敏感配置（优先于 config.json），但过滤占位符
+    const barkKey = pickRealValue(process.env.BARK_KEY, config.bark?.deviceKey);
+    const barkSoundNormal = pickRealValue(process.env.BARK_SOUND_NORMAL, config.bark?.soundNormal) || 'minuet';
+    const barkSoundCritical = pickRealValue(process.env.BARK_SOUND_CRITICAL, config.bark?.soundCritical) || 'alarm';
     const barkVolume = parseInt(process.env.BARK_VOLUME) || config.bark?.volume || 5;
-    const tgBotToken = process.env.TG_BOT_TOKEN || config.telegram?.botToken || '';
-    const tgChatId = process.env.TG_CHAT_ID || config.telegram?.chatId || '';
+    const tgBotToken = pickRealValue(process.env.TG_BOT_TOKEN, config.telegram?.botToken);
+    const tgChatId = pickRealValue(process.env.TG_CHAT_ID, config.telegram?.chatId);
     
     return {
       success: true,
@@ -1492,6 +1506,9 @@ class WebServer extends EventEmitter {
           chatId: tgChatId
         },
         settings: {
+          checkIntervalMinutes: config.settings?.checkIntervalMinutes || 1,
+          alertSilenceMinutes: config.settings?.alertSilenceMinutes || 5,
+          maxPriceRecordsPerSymbol: config.settings?.maxPriceRecordsPerSymbol || 720,
           notificationTestMode: config.settings?.notificationTestMode || false
         }
       }
