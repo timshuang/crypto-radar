@@ -299,6 +299,10 @@ class StorageManager {
     // 内存中的价格缓冲区（按币种）
     this.priceBuffers = new Map();
     
+    // 全局定时器：每秒缓存价格（用于确保每秒都有数据）
+    this.pendingRecords = new Map(); // key -> {second, time, price, volume, displaySymbol}
+    this.flushInterval = null;
+    
     // Alpha 符号映射（symbol -> ca，用于显示）
     this.symbolMapping = new Map(); // symbol -> ca
     this.reverseSymbolMapping = new Map(); // ca -> symbol
@@ -324,7 +328,7 @@ class StorageManager {
   /**
    * 初始化存储
    */
-  async init(maxRecordsPerSymbol = 1440) {
+  async init(maxRecordsPerSymbol = 720) {
     this.maxRecords = maxRecordsPerSymbol;
     
     // 加载持久化数据
@@ -360,6 +364,89 @@ class StorageManager {
     this.alertHistory = this.alertHistoryStore.get('history', []);
     
     console.log(`[Storage] 初始化完成，${this.priceBuffers.size} 个币种价格缓存（纯内存模式），${this.alertHistory.length} 条报警记录`);
+    
+    // 启动全局定时器，每秒刷入 pending 数据（确保每秒都有数据）
+    this.startFlushInterval();
+  }
+  
+  /**
+   * 启动全局定时器，每秒将所有币种数据刷入 buffer
+   * 确保每秒都有数据，支持准确的净变化率计算
+   */
+  startFlushInterval() {
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+    }
+    
+    this.flushInterval = setInterval(() => {
+      this.flushPending();
+    }, 1000);
+    
+    console.log('[Storage] 全局定时器已启动：每秒刷入所有币种数据（720条=12分钟）');
+  }
+  
+  /**
+   * 停止全局定时器
+   */
+  stopFlushInterval() {
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+      this.flushInterval = null;
+      console.log('[Storage] 全局定时器已停止');
+    }
+  }
+  
+  /**
+   * 将 pending 数据刷入 priceBuffers
+   * 每秒执行一次，确保每秒都有数据
+   * 方案B：遍历所有已有 buffer 的币种，无 pending 时复制上一秒价格
+   */
+  flushPending() {
+    const now = Date.now();
+    const currentTime = Math.floor(now / 1000) * 1000; // 整秒时间戳
+    let flushCount = 0;
+    
+    // 遍历所有已有 priceBuffer 的币种（曾经收到过数据的）
+    for (const [key, buffer] of this.priceBuffers) {
+      const pending = this.pendingRecords.get(key);
+      
+      if (pending) {
+        // 有 pending：存储最新价格
+        buffer.push(pending.time, pending.price, pending.volume);
+        
+        // 触发价格更新钩子（用于实时波动侦测）
+        const update = {
+          key: key,
+          symbol: pending.displaySymbol || key,
+          time: pending.time,
+          price: pending.price,
+          volume: pending.volume,
+          source: key.startsWith('0x') ? 'alpha' : 'spot'
+        };
+        
+        for (const hook of this.priceUpdateHooks) {
+          try {
+            hook(update);
+          } catch (err) {
+            console.error(`[Storage] 价格更新钩子执行失败: ${err.message}`);
+          }
+        }
+        
+        this.pendingRecords.delete(key);
+        flushCount++;
+      } else {
+        // 无 pending：复制上一秒的最新价格
+        const latest = buffer.getLatest();
+        if (latest) {
+          buffer.push(currentTime, latest.price, latest.volume);
+          flushCount++;
+        }
+      }
+    }
+    
+    if (flushCount > 0) {
+      console.log(`[Storage] 刷入 ${flushCount} 个币种的价格数据（含复制上一秒）`);
+    }
   }
 
   /**
@@ -409,39 +496,26 @@ class StorageManager {
   addPriceRecord(key, time, price, volume = 0, displaySymbol = null) {
     const normalizedKey = this._normalizeKey(key);
 
+    // 关键：确保新币种先创建 buffer，否则 flushPending 遍历不到该 key，导致价格始终为 0
+    this.getPriceBuffer(normalizedKey);
+
     // 如果是 Alpha 且提供了 displaySymbol，记录映射关系
     if (displaySymbol && normalizedKey !== displaySymbol) {
       this.setSymbolMapping(displaySymbol, normalizedKey);
     }
     
-    const buffer = this.getPriceBuffer(normalizedKey);
+    // 写入 pending，同秒内覆盖（确保每秒只存最后一条）
+    const currentSecond = Math.floor(time / 1000);
+    this.pendingRecords.set(normalizedKey, {
+      second: currentSecond,
+      time,
+      price,
+      volume,
+      displaySymbol
+    });
     
-    // 获取当前最新价格（用于判断是否变化）
-    const latest = buffer.getLatest();
-    const lastPrice = latest ? latest.price : null;
-    
-    buffer.push(time, price, volume);
-    
-    // 价格变化时触发钩子（智能检查：价格不变不触发）
-    if (lastPrice === null || lastPrice !== price) {
-      const update = {
-        key: normalizedKey,
-        symbol: displaySymbol || this.getSymbolForCa(normalizedKey) || normalizedKey,
-        time,
-        price,
-        volume,
-        source: normalizedKey.startsWith('0x') ? 'alpha' : 'spot'
-      };
-      
-      // 异步触发所有注册的钩子（不阻塞主流程）
-      for (const hook of this.priceUpdateHooks) {
-        try {
-          hook(update);
-        } catch (err) {
-          console.error(`[Storage] 价格更新钩子执行失败: ${err.message}`);
-        }
-      }
-    }
+    // 注意：数据不会立即写入 buffer，而是等待全局定时器每秒刷入
+    // 这样可以确保每秒最多只存一条数据，支持准确的净变化率计算
   }
   
   /**
