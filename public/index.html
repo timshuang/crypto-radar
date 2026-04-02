@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChainPulse - Web3 双轨行情雷达</title>
   <link rel="icon" type="image/jpeg" href="/assets/chainpulse-icon.jpg">
-  <link rel="stylesheet" href="/style.css?v=202604021930">
+  <link rel="stylesheet" href="/style.css?v=202604022030">
 </head>
 <body>
   <div class="container">
@@ -321,12 +321,12 @@
         <div class="card">
           <h2>⚙️ 系统参数</h2>
           <form id="system-form" class="settings-form">
-            <div class="form-group">
+            <div class="form-group form-group-narrow">
               <label>静默期（分钟）</label>
               <input type="number" id="silence-interval" min="1" value="5">
             </div>
-            <div class="form-group">
-              <label>最大价格记录数/币种</label>
+            <div class="form-group form-group-narrow">
+              <label>最大价格记录数</label>
               <input type="number" id="max-records" min="100" value="720">
               <p class="hint">内存中每个币种保留的价格记录数量（默认720条≈12分钟）</p>
             </div>

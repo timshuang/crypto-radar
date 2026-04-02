@@ -436,6 +436,13 @@ h2 {
   font-size: 1em;
 }
 
+/* 窄输入框（半宽） */
+.form-group-narrow input[type="text"],
+.form-group-narrow input[type="number"],
+.form-group-narrow select {
+  width: 50%;
+}
+
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
