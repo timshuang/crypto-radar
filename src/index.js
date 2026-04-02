@@ -118,8 +118,12 @@ async function init() {
       app.wsConnector  // 注入 wsConnector，用于获取 Alpha 币种列表
     );
 
-    // 注册价格更新钩子：价格变化时实时触发波动检查
+    // 注册价格更新钩子：事件驱动触发（目标检查 + 波动检查）
     app.unsubscribePriceHook = app.storage.registerPriceUpdateHook((update) => {
+      app.checkerEngine?.handlePriceUpdate(update).catch(err => {
+        console.error(`[Checker] 实时检查失败：${err.message}`);
+      });
+
       app.volatilityEngine?.handlePriceUpdate(update).catch(err => {
         console.error(`[Volatility] 实时检查失败：${err.message}`);
       });

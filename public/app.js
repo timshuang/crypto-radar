@@ -110,6 +110,23 @@ function showPage(pageId) {
     document.querySelectorAll('.nav-links a')[index]?.classList.add('active');
   }
   
+  // 页面级刷新策略
+  if (pageId === 'monitor') {
+    // 首次立即加载一次
+    loadMonitor();
+    // 监控列表每秒刷新（页面实时感更好）
+    if (monitorRefreshTimer) clearInterval(monitorRefreshTimer);
+    monitorRefreshTimer = setInterval(() => {
+      loadMonitor();
+    }, 1000);
+  } else {
+    // 离开监控页就停止 1s 刷新
+    if (monitorRefreshTimer) {
+      clearInterval(monitorRefreshTimer);
+      monitorRefreshTimer = null;
+    }
+  }
+
   // 加载设置页面时，加载通知配置
   if (pageId === 'settings') {
     loadNotificationConfig();
@@ -150,6 +167,8 @@ async function loadDashboard() {
     console.error('加载仪表盘失败:', err);
   }
 }
+
+let monitorRefreshTimer = null;
 
 // 加载币种监控列表（整合页面）
 async function loadMonitor() {
