@@ -250,18 +250,18 @@ class VolatilityMonitor {
     // 获取滑动窗口统计
     const stats = this.storage.getWindowStats(symbol, windowMinutes);
     
-    if (!stats || stats.min === Infinity || stats.max === -Infinity) {
+    if (!stats || !stats.startPrice || !stats.endPrice) {
       return null; // 数据不足
     }
     
-    // 计算波动率
-    const volatility = ((stats.max - stats.min) / stats.min) * 100;
+    // 计算波动率：净变化率 (end - start) / start * 100%
+    const volatility = ((stats.endPrice - stats.startPrice) / stats.startPrice) * 100;
     
     // 使用全局阈值
     const currentThreshold = thresholdPercent;
     
-    // 检查是否触发
-    const isTriggered = volatility >= currentThreshold;
+    // 检查是否触发（上涨或下跌超过阈值）
+    const isTriggered = Math.abs(volatility) >= currentThreshold;
     
     return {
       symbol,
@@ -282,7 +282,7 @@ class VolatilityMonitor {
    * 处理触发的波动
    */
   async handleTrigger(result) {
-    const { symbol, volatility, min, max, threshold, direction } = result;
+    const { symbol, volatility, min, max, threshold, direction, windowMinutes, sourceType } = result;
     const volatilityKey = `${symbol}_volatility`;
     
     // 检查静默期
@@ -301,7 +301,9 @@ class VolatilityMonitor {
       min,
       max,
       threshold,
-      direction
+      direction,
+      windowMinutes,
+      sourceType
     );
     
     if (sent) {
