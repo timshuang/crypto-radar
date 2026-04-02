@@ -142,11 +142,9 @@ class ConfigManager extends EventEmitter {
       this.config.settings.alertSilenceMinutes = 5;
     }
     if (!this.config.settings.maxPriceRecordsPerSymbol) {
-      this.config.settings.maxPriceRecordsPerSymbol = 1440;
+      this.config.settings.maxPriceRecordsPerSymbol = 720;  // 720条=12分钟
     }
-    if (!this.config.settings.maxSymbols) {
-      this.config.settings.maxSymbols = 20;
-    }
+    // maxSymbols 已移除 - 不再限制监控币种数量
     
     // 币种默认值
     if (Array.isArray(this.config.symbols)) {
@@ -198,8 +196,8 @@ class ConfigManager extends EventEmitter {
       settings: {
         checkIntervalMinutes: 1,
         alertSilenceMinutes: 5,
-        maxPriceRecordsPerSymbol: 1440,
-        maxSymbols: 20
+        maxPriceRecordsPerSymbol: 720
+        // maxSymbols 已移除 - 不再限制监控币种数量
       }
     };
   }
@@ -223,9 +221,7 @@ class ConfigManager extends EventEmitter {
     if (!this.config || !Array.isArray(this.config.symbols)) {
       return [];
     }
-    return this.config.symbols
-      .filter(s => s.enabled)
-      .slice(0, this.config.settings.maxSymbols);
+    return this.config.symbols.filter(s => s.enabled);
   }
 
   /**

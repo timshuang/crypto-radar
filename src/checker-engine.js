@@ -76,6 +76,11 @@ class CheckerEngine {
     try {
       console.log('[Checker] 开始检查...');
       
+      // 强制刷入 pending 数据，确保价格数据最新
+      if (this.storage) {
+        this.storage.flushPending();
+      }
+      
       // 价格目标检查：只检查启用的币种
       const enabledSymbols = this.configManager.getEnabledSymbols();
       

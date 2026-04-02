@@ -209,6 +209,11 @@ class VolatilityEngine {
     try {
       console.log('[Volatility] 开始检查...');
       
+      // 强制刷入 pending 数据，确保价格数据最新
+      if (this.storage) {
+        this.storage.flushPending();
+      }
+      
       // 每次检查都从 config 读取最新参数
       const windowMinutes = volatilityModule.windowMinutes || 5;
       const thresholdPercent = volatilityModule.thresholdPercent || 20;
