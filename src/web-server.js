@@ -1360,6 +1360,7 @@ class WebServer extends EventEmitter {
     const windowMinutes = config.volatilityModule.windowMinutes || 5;
     const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
     const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
+    const runtimeSilenceMinutes = Math.round(((this.storage?.throttle?.silenceMs || (silenceMinutes * 60 * 1000)) / 60000) * 100) / 100;
     
     let rangeText;
     if (scope === 'global') {
@@ -1376,7 +1377,7 @@ class WebServer extends EventEmitter {
     const message = `🌊 波动侦测开启
 
 范围：${rangeText}
-窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟`;
+窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟，实际静默期：${runtimeSilenceMinutes}分钟`;
     
     // 发送 TG 通知（不等待，不阻塞）
     if (this.app?.alertService) {
