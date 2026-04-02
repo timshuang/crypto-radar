@@ -443,12 +443,6 @@ h2 {
   width: 50%;
 }
 
-/* 系统参数输入框半宽 - 确保覆盖 */
-#system-form #silence-interval,
-#system-form #max-records {
-  width: 50% !important;
-}
-
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
