@@ -1423,12 +1423,9 @@ class WebServer extends EventEmitter {
 
     config.volatilityModule.enabled = enabled;
 
-    // 关闭时：删除参数（但保留 enabled 字段）
+    // 关闭时不删除参数：保留上次配置，便于下次直接恢复
     if (!enabled) {
-      delete config.volatilityModule.scope;
-      delete config.volatilityModule.windowMinutes;
-      delete config.volatilityModule.thresholdPercent;
-      console.log('[WebServer] 波动侦测已关闭，参数已删除');
+      console.log('[WebServer] 波动侦测已关闭，保留现有参数');
     }
 
     await this.configManager.save();
