@@ -110,9 +110,8 @@ function showPage(pageId) {
     document.querySelectorAll('.nav-links a')[index]?.classList.add('active');
   }
   
-  // 加载设置页面时，加载系统开关状态和通知配置
+  // 加载设置页面时，加载通知配置
   if (pageId === 'settings') {
-    loadSystemStatusFromSettings();
     loadNotificationConfig();
   }
 }
@@ -739,77 +738,6 @@ function initSystemToggle() {
   }
 }
 
-// 初始化设置页面的系统开关
-function initSettingsSystemToggle() {
-  const toggle = document.getElementById('settings-system-toggle');
-  
-  if (toggle) {
-    // 加载当前状态
-    loadSystemStatusFromSettings();
-    
-    // 监听开关变化
-    toggle.addEventListener('change', async (e) => {
-      if (!e.target.checked) {
-        // 关闭时显示确认弹窗
-        showStopConfirmModal();
-      } else {
-        // 开启时直接调用 API
-        await toggleSystemFromSettings(true);
-      }
-    });
-  }
-}
-
-// 从设置页面切换系统状态
-async function toggleSystemFromSettings(enabled) {
-  try {
-    const response = await fetch('/api/system/toggle', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Token': API_TOKEN
-      },
-      body: JSON.stringify({ enabled })
-    });
-    
-    const data = await response.json();
-    
-    if (data.success) {
-      // 更新状态显示
-      const statusEl = document.getElementById('settings-toggle-status');
-      if (statusEl) {
-        statusEl.textContent = enabled ? '系统运行中' : '系统已停止';
-      }
-      
-      // 提示用户
-      showToast(enabled ? '系统已启动' : '系统已停止监控');
-    }
-  } catch (error) {
-    console.error('切换系统失败:', error);
-    showToast('操作失败，请重试');
-    // 恢复开关状态
-    document.getElementById('settings-system-toggle').checked = !enabled;
-  }
-}
-
-// 加载系统状态（设置页面）
-async function loadSystemStatusFromSettings() {
-  try {
-    const response = await fetch('/api/status');
-    const data = await response.json();
-    
-    const toggle = document.getElementById('settings-system-toggle');
-    const status = document.getElementById('settings-toggle-status');
-    
-    if (toggle && status) {
-      const isEnabled = data.data?.systemEnabled !== false && data.data?.running !== false;
-      toggle.checked = isEnabled;
-      status.textContent = isEnabled ? '系统运行中' : '系统已停止';
-    }
-  } catch (error) {
-    console.error('加载系统状态失败:', error);
-  }
-}
 
 // 显示确认弹窗
 function showStopConfirmModal() {
@@ -2163,9 +2091,6 @@ async function init() {
   
   // 初始化系统开关（仪表盘）
   initSystemToggle();
-  
-  // 初始化系统开关（设置页面）
-  initSettingsSystemToggle();
   
   // 初始化自动补全
   initAutocomplete();
