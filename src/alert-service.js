@@ -466,15 +466,35 @@ class AlertService extends EventEmitter {
    */
   async sendTextToTelegram(text) {
     try {
-      const tgConfig = this.configManager?.config?.telegram;
-      if (!tgConfig?.enabled || !tgConfig.botToken || !tgConfig.chatId) {
+      const tgConfig = this.configManager?.config?.telegram || {};
+
+      // 占位符过滤：避免 ENV_*/YOUR_* 等模板值误用于发送
+      const isPlaceholder = (v) => {
+        if (!v || typeof v !== 'string') return false;
+        return v.startsWith('ENV_') || v.startsWith('YOUR_') || v.endsWith('_HERE');
+      };
+      const pickRealValue = (...values) => {
+        for (const v of values) {
+          if (v === undefined || v === null || v === '') continue;
+          if (typeof v === 'string' && isPlaceholder(v)) continue;
+          return v;
+        }
+        return '';
+      };
+
+      // 统一与通知模块一致：优先 .env，fallback config
+      const botToken = pickRealValue(process.env.TG_BOT_TOKEN, tgConfig.botToken);
+      const chatId = pickRealValue(process.env.TG_CHAT_ID, tgConfig.chatId);
+      const enabled = tgConfig.enabled === true;
+
+      if (!enabled || !botToken || !chatId) {
         console.log('[Alert] Telegram 未配置，跳过文本通知');
         return { success: false, error: 'Telegram 未配置' };
       }
 
-      const url = `https://api.telegram.org/bot${tgConfig.botToken}/sendMessage`;
+      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
       const body = {
-        chat_id: tgConfig.chatId,
+        chat_id: chatId,
         text: text,
         parse_mode: 'Markdown'
       };

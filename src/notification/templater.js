@@ -37,16 +37,17 @@ class Templater {
 
   /**
    * 构建波动预警消息
-   * 格式：[波动] {现货/Alpha} {币种名称} {XX}min {上涨/下跌} {XX}%
-   * 示例：[波动] 现货 BTCUSDT 5min 上涨 3.5%
+   * 格式：[现货/alpha] {币种名称} {XX}min {上涨/下跌} {XX}%
+   * 示例：[现货] BTCUSDT 5min 上涨 3.5%
    */
   buildVolatilityAlert(alert) {
-    const sourceType = alert.sourceType || (alert.source === 'alpha' ? 'Alpha' : '现货');
+    const rawSource = String(alert.sourceType || (alert.source === 'alpha' ? 'alpha' : 'spot')).toLowerCase();
+    const sourceLabel = rawSource === 'alpha' ? 'alpha' : '现货';
     const direction = alert.direction === 'down' ? '下跌' : '上涨';
-    
+
     const title = '波动预警';
-    const content = `[波动] ${sourceType} ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(1)}%`;
-    
+    const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(2)}%`;
+
     return { title, content };
   }
 
