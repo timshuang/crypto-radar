@@ -499,21 +499,36 @@ class AlertService extends EventEmitter {
         parse_mode: 'Markdown'
       };
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      // 轻量重试：网络抖动时再试一次
+      let lastError = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
 
-      const result = await response.json();
-      
-      if (result.ok) {
-        console.log('[Alert] Telegram 文本通知已发送');
-        return { success: true };
-      } else {
-        console.error(`[Alert] Telegram 文本通知失败：${result.description}`);
-        return { success: false, error: result.description };
+          const result = await response.json();
+
+          if (result.ok) {
+            console.log('[Alert] Telegram 文本通知已发送');
+            return { success: true };
+          }
+
+          lastError = new Error(result.description || `HTTP ${response.status}`);
+          console.error(`[Alert] Telegram 文本通知失败(尝试${attempt}/2)：${lastError.message}`);
+        } catch (err) {
+          lastError = err;
+          console.error(`[Alert] Telegram 文本通知异常(尝试${attempt}/2)：${err.message}`);
+        }
+
+        if (attempt < 2) {
+          await this._sleep(1000);
+        }
       }
+
+      return { success: false, error: lastError?.message || '发送失败' };
     } catch (err) {
       console.error(`[Alert] Telegram 文本通知异常：${err.message}`);
       return { success: false, error: err.message };

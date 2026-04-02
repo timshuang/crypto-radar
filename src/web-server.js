@@ -1359,7 +1359,7 @@ class WebServer extends EventEmitter {
     const scope = config.volatilityModule.scope || 'global';
     const windowMinutes = config.volatilityModule.windowMinutes || 5;
     const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
-    const silenceMinutes = 5;
+    const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
     
     let rangeText;
     if (scope === 'global') {
