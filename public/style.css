@@ -436,10 +436,11 @@ h2 {
   font-size: 1em;
 }
 
-/* 系统参数：两个输入框缩为一半宽度 */
+/* 系统参数：固定为半宽视觉（避免百分比在不同布局下被放大） */
 #system-form #silence-interval,
 #system-form #max-records {
-  width: 50%;
+  width: 220px;
+  max-width: 100%;
   box-sizing: border-box;
 }
 
