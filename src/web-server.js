@@ -452,6 +452,10 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/system/toggle' && method === 'POST') {
       result = this._toggleSystem(body);
     }
+    // POST /api/system/restart - 重启系统（重新加载配置）
+    else if (pathname === '/api/system/restart' && method === 'POST') {
+      result = this._restartSystem(body);
+    }
     // GET /api/volatility/config - 获取波动模块配置（新版）
     else if (pathname === '/api/volatility/config' && method === 'GET') {
       result = this._getVolatilityConfig();
@@ -1125,6 +1129,37 @@ class WebServer extends EventEmitter {
       success: true,
       data: { enabled }
     };
+  }
+
+  /**
+   * POST /api/system/restart - 重启系统（由 PM2 自动拉起）
+   */
+  _restartSystem(data = {}) {
+    try {
+      const reason = data.reason || 'manual';
+      console.log(`[WebServer] 收到系统重启请求，reason=${reason}`);
+
+      // 先返回成功响应，再延迟退出进程（由 PM2 自动重启）
+      setTimeout(() => {
+        console.log('[WebServer] 正在重启进程...');
+        process.exit(0);
+      }, 800);
+
+      return {
+        success: true,
+        message: '系统重启已开始',
+        data: {
+          restarting: true,
+          timestamp: new Date().toISOString()
+        }
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: 'RESTART_FAILED',
+        message: err.message
+      };
+    }
   }
 
   /**

@@ -26,16 +26,13 @@
       <section id="dashboard" class="page active">
         <h1>📊 系统仪表盘</h1>
         
-        <!-- 系统总开关 -->
+        <!-- 系统重启 -->
         <div class="system-toggle-card">
           <div class="toggle-header">
-            <h3>🔌 系统监控</h3>
-            <label class="toggle-switch">
-              <input type="checkbox" id="systemToggle" checked>
-              <span class="toggle-slider"></span>
-            </label>
+            <h3>🔄 系统重启</h3>
+            <button class="btn btn-warning" id="restartSystemBtn">重启系统</button>
           </div>
-          <p class="toggle-status" id="toggleStatus">系统运行中</p>
+          <p class="toggle-status" id="toggleStatus">修改系统参数后，点击“重启系统”即可加载最新配置</p>
         </div>
 
         <!-- 实时状态 -->
@@ -478,21 +475,21 @@
       </div>
     </div>
 
-    <!-- 关闭系统确认弹窗 -->
+    <!-- 重启系统确认弹窗 -->
     <div id="stopConfirmModal" class="modal">
       <div class="modal-content warning">
         <div class="modal-icon">⚠️</div>
-        <h3>确认关闭系统监控？</h3>
-        <p>关闭后将不再监控任何币种，不会接收价格更新和报警推送。</p>
+        <h3>确认重启系统？</h3>
+        <p>重启后将短暂中断监控服务，系统会自动重新加载最新配置。</p>
         <div class="modal-actions">
           <button class="btn-cancel" onclick="closeStopModal()">取消</button>
-          <button class="btn-confirm" onclick="confirmStopSystem()">确认关闭</button>
+          <button class="btn-confirm" onclick="confirmRestartSystem()">确认重启</button>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="/app.js?v=202604011745"></script>
+  <script src="/app.js?v=202604021640"></script>
 
   <!-- 测试通知结果弹窗 -->
   <div id="test-notification-modal" class="modal">

@@ -725,23 +725,16 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
 
 // ==================== 系统开关功能 ====================
 
-// 初始化系统开关（仪表盘）
+// 初始化系统重启按钮（仪表盘）
 function initSystemToggle() {
-  const toggle = document.getElementById('systemToggle');
-  
-  if (toggle) {
-    // 加载当前状态
-    loadSystemStatus();
-    
-    // 监听开关变化
-    toggle.addEventListener('change', async (e) => {
-      if (!e.target.checked) {
-        // 关闭时显示确认弹窗
-        showStopConfirmModal();
-      } else {
-        // 开启时直接调用 API
-        await toggleSystem(true);
-      }
+  const restartBtn = document.getElementById('restartSystemBtn');
+
+  // 加载当前状态
+  loadSystemStatus();
+
+  if (restartBtn) {
+    restartBtn.addEventListener('click', () => {
+      showStopConfirmModal();
     });
   }
 }
@@ -824,34 +817,51 @@ function showStopConfirmModal() {
 }
 
 // 关闭确认弹窗
-function closeStopModal(restore = true) {
+function closeStopModal() {
   document.getElementById('stopConfirmModal').classList.remove('active');
-  if (restore) {
-    // 只有取消时才恢复开关状态（两个页面都要恢复）
-    const dashboardToggle = document.getElementById('systemToggle');
-    const settingsToggle = document.getElementById('settings-system-toggle');
-    if (dashboardToggle) dashboardToggle.checked = true;
-    if (settingsToggle) settingsToggle.checked = true;
+}
+
+// 确认重启
+async function confirmRestartSystem() {
+  await restartSystem();
+  closeStopModal();
+}
+
+// 重启系统（重新加载配置）
+async function restartSystem() {
+  try {
+    const response = await fetch('/api/system/restart', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': API_TOKEN
+      },
+      body: JSON.stringify({ reason: 'manual-restart-from-dashboard' })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      const dashboardStatusEl = document.getElementById('toggleStatus');
+      if (dashboardStatusEl) {
+        dashboardStatusEl.textContent = '系统重启中，正在重新加载配置...';
+      }
+      showToast('系统重启中，请稍候...', 'success');
+
+      // 给后端重启留时间，然后刷新页面
+      setTimeout(() => {
+        window.location.reload();
+      }, 5000);
+    } else {
+      showToast(data.message || '重启失败', 'error');
+    }
+  } catch (error) {
+    console.error('重启系统失败:', error);
+    showToast('重启失败，请重试', 'error');
   }
 }
 
-// 确认关闭
-async function confirmStopSystem() {
-  await toggleSystem(false);
-  closeStopModal(false); // 不恢复状态
-  
-  // 同步设置页面的开关状态
-  const settingsToggle = document.getElementById('settings-system-toggle');
-  if (settingsToggle) {
-    settingsToggle.checked = false;
-  }
-  const settingsStatus = document.getElementById('settings-toggle-status');
-  if (settingsStatus) {
-    settingsStatus.textContent = '系统已停止';
-  }
-}
-
-// 切换系统状态
+// 切换系统状态（兼容保留）
 async function toggleSystem(enabled) {
   try {
     const response = await fetch('/api/system/toggle', {
@@ -897,22 +907,13 @@ async function loadSystemStatus() {
   try {
     const response = await fetch('/api/status');
     const data = await response.json();
-    
-    const toggle = document.getElementById('systemToggle');
+
     const status = document.getElementById('toggleStatus');
-    
-    if (toggle && status) {
+    if (status) {
       const isEnabled = data.data?.systemEnabled !== false && data.data?.running !== false;
-      toggle.checked = isEnabled;
-      status.textContent = isEnabled ? '系统运行中' : '系统已停止';
-    }
-    
-    // 同步设置页面的开关状态
-    const settingsToggle = document.getElementById('settings-system-toggle');
-    const settingsStatus = document.getElementById('settings-toggle-status');
-    if (settingsToggle && settingsStatus) {
-      settingsToggle.checked = isEnabled;
-      settingsStatus.textContent = isEnabled ? '系统运行中' : '系统已停止';
+      status.textContent = isEnabled
+        ? '系统运行中（修改系统参数后可点击“重启系统”使配置生效）'
+        : '系统当前未运行';
     }
   } catch (error) {
     console.error('加载系统状态失败:', error);
