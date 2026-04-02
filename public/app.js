@@ -700,23 +700,36 @@ document.getElementById('bark-notification-form').addEventListener('submit', asy
   }
 });
 
-// 保存系统设置
+// 保存系统设置（确认后保存并重启；取消则不保存）
 document.getElementById('system-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  
+
   const settings = {
     checkIntervalMinutes: parseInt(document.getElementById('check-interval').value),
     alertSilenceMinutes: parseInt(document.getElementById('silence-interval').value),
     maxPriceRecordsPerSymbol: parseInt(document.getElementById('max-records').value)
     // maxSymbols 已移除 - 不再限制监控币种数量
   };
-  
+
+  const confirmed = window.confirm('系统参数需重启后生效。\n\n确认后将：\n1) 保存配置\n2) 立即重启系统\n\n是否继续？');
+  if (!confirmed) {
+    showToast('已取消，配置未保存', 'info');
+    return;
+  }
+
   try {
     await api('/settings', {
       method: 'PUT',
       body: JSON.stringify({ settings })
     });
-    showToast('系统设置已保存', 'success');
+    showToast('系统设置已保存，准备重启...', 'success');
+
+    // 保存成功后立即重启
+    try {
+      await restartSystem();
+    } catch (restartErr) {
+      showToast('配置已保存，但重启失败，请手动重启系统', 'error');
+    }
   } catch (err) {
     showToast('保存失败：' + err.message, 'error');
   }
