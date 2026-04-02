@@ -448,6 +448,10 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/alerts/history' && method === 'GET') {
       result = this._getAlertsHistory();
     }
+    // DELETE /api/alerts/history - 清空报警历史记录
+    else if (pathname === '/api/alerts/history' && method === 'DELETE') {
+      result = await this._clearAlertsHistory();
+    }
     // POST /api/system/toggle - 系统总开关
     else if (pathname === '/api/system/toggle' && method === 'POST') {
       result = this._toggleSystem(body);
@@ -594,6 +598,24 @@ class WebServer extends EventEmitter {
   // ==================== API  handlers ====================
 
   /**
+   * 统一解析取价 key（Alpha: ca -> 运行时映射 -> symbol）
+   */
+  _resolvePriceKey(symbolConfig) {
+    if (!symbolConfig) return null;
+    if (symbolConfig.source !== 'alpha') return symbolConfig.symbol;
+
+    // 1) 配置中的 ca
+    if (symbolConfig.ca) return symbolConfig.ca;
+
+    // 2) 运行时映射（全量流建立的 symbol -> ca）
+    const mappedCa = this.storage?.getCaForSymbol?.(symbolConfig.symbol);
+    if (mappedCa) return mappedCa;
+
+    // 3) 最终兜底（少数场景下 Alpha 可能以 symbol 入库）
+    return symbolConfig.symbol;
+  }
+
+  /**
    * GET /api/status - 系统状态
    */
   _getStatus() {
@@ -606,8 +628,7 @@ class WebServer extends EventEmitter {
     
     // 获取实时价格
     const symbolPrices = enabledSymbols.map(s => {
-      // Alpha 币种使用 ca 作为 key 查询，现货使用 symbol
-      const priceKey = s.source === 'alpha' ? s.ca : s.symbol;
+      const priceKey = this._resolvePriceKey(s);
       const latest = this.storage?.getLatestPrice(priceKey);
       return {
         symbol: s.symbol,
@@ -662,8 +683,7 @@ class WebServer extends EventEmitter {
     
     const prices = {};
     symbols.forEach(s => {
-      // Alpha 币种使用 ca 作为 key 查询，现货使用 symbol
-      const priceKey = s.source === 'alpha' ? s.ca : s.symbol;
+      const priceKey = this._resolvePriceKey(s);
       const latest = this.storage?.getLatestPrice(priceKey);
       if (latest?.price) {
         prices[s.symbol] = latest.price;
@@ -735,8 +755,7 @@ class WebServer extends EventEmitter {
     
     // 添加实时价格
     const symbolsWithPrice = symbols.map(s => {
-      // Alpha 币种使用 ca 作为 key 查询，现货使用 symbol
-      const priceKey = s.source === 'alpha' ? s.ca : s.symbol;
+      const priceKey = this._resolvePriceKey(s);
       const latest = this.storage?.getLatestPrice(priceKey);
       return {
         ...s,
@@ -1116,6 +1135,14 @@ class WebServer extends EventEmitter {
     const history = this.storage?.getAlertHistory() || [];
     
     return { success: true, data: history };
+  }
+
+  /**
+   * DELETE /api/alerts/history - 清空报警历史记录
+   */
+  async _clearAlertsHistory() {
+    await this.storage?.clearAlertHistory?.();
+    return { success: true, message: '报警历史已清空' };
   }
 
   /**

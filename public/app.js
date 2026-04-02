@@ -626,6 +626,46 @@ document.getElementById('add-symbol-form').addEventListener('submit', async (e) 
   }
 });
 
+let clearAlertsConfirmResolver = null;
+
+function showClearAlertsConfirmModal() {
+  return new Promise((resolve) => {
+    clearAlertsConfirmResolver = resolve;
+    const modal = document.getElementById('clearAlertsConfirmModal');
+    if (modal) {
+      modal.classList.add('active');
+    } else {
+      resolve(window.confirm('确认清空所有报警历史记录？此操作不可恢复。'));
+    }
+  });
+}
+
+function closeClearAlertsConfirmModal(result = false) {
+  const modal = document.getElementById('clearAlertsConfirmModal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+  if (clearAlertsConfirmResolver) {
+    const resolver = clearAlertsConfirmResolver;
+    clearAlertsConfirmResolver = null;
+    resolver(result);
+  }
+}
+
+// 清空报警历史
+async function clearAlertsHistory() {
+  const confirmed = await showClearAlertsConfirmModal();
+  if (!confirmed) return;
+
+  try {
+    await api('/alerts/history', { method: 'DELETE' });
+    showToast('报警历史已清空', 'success');
+    loadAlerts();
+  } catch (err) {
+    showToast('清空失败：' + err.message, 'error');
+  }
+}
+
 // 加载报警历史
 async function loadAlerts() {
   const symbolFilter = document.getElementById('alert-symbol-filter').value;
@@ -686,7 +726,6 @@ async function loadSettings() {
     
     // 系统设置（这里只处理系统参数；通知配置由 loadNotificationConfig 负责）
     if (data.settings) {
-      setValueIfExists('check-interval', data.settings.checkIntervalMinutes ?? 1);
       setValueIfExists('silence-interval', data.settings.alertSilenceMinutes ?? 5);
       setValueIfExists('max-records', data.settings.maxPriceRecordsPerSymbol ?? 720);
       // maxSymbols 已移除 - 不再限制监控币种数量
@@ -724,7 +763,6 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
   e.preventDefault();
 
   const settings = {
-    checkIntervalMinutes: parseInt(document.getElementById('check-interval').value),
     alertSilenceMinutes: parseInt(document.getElementById('silence-interval').value),
     maxPriceRecordsPerSymbol: parseInt(document.getElementById('max-records').value)
     // maxSymbols 已移除 - 不再限制监控币种数量

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChainPulse - Web3 双轨行情雷达</title>
   <link rel="icon" type="image/jpeg" href="/assets/chainpulse-icon.jpg">
-  <link rel="stylesheet" href="/style.css?v=202604011755">
+  <link rel="stylesheet" href="/style.css?v=202604021930">
 </head>
 <body>
   <div class="container">
@@ -208,7 +208,7 @@
               <select id="alert-symbol-filter">
                 <option value="">全部币种</option>
               </select>
-              <button class="btn" onclick="loadAlerts()">刷新</button>
+              <button class="btn btn-danger" onclick="clearAlertsHistory()">清空历史</button>
             </div>
           </div>
           <table class="data-table">
@@ -321,10 +321,6 @@
         <div class="card">
           <h2>⚙️ 系统参数</h2>
           <form id="system-form" class="settings-form">
-            <div class="form-group">
-              <label>检查间隔（分钟）</label>
-              <input type="number" id="check-interval" min="1" value="1">
-            </div>
             <div class="form-group">
               <label>静默期（分钟）</label>
               <input type="number" id="silence-interval" min="1" value="5">
@@ -500,9 +496,22 @@
         </div>
       </div>
     </div>
+
+    <!-- 清空报警历史确认弹窗 -->
+    <div id="clearAlertsConfirmModal" class="modal">
+      <div class="modal-content warning">
+        <div class="modal-icon">🧹</div>
+        <h3>确认清空报警历史？</h3>
+        <p>此操作不可恢复，将删除所有报警历史记录。</p>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeClearAlertsConfirmModal(false)">取消</button>
+          <button class="btn-confirm" onclick="closeClearAlertsConfirmModal(true)">确认清空</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/app.js?v=202604021915"></script>
+  <script src="/app.js?v=202604022010"></script>
 
   <!-- 测试通知结果弹窗 -->
   <div id="test-notification-modal" class="modal">

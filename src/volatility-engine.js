@@ -104,10 +104,7 @@ class VolatilityEngine {
    * 启动波动侦测引擎
    */
   start() {
-    const intervalMinutes = this.configManager.getSettings().checkIntervalMinutes || 1;
-    const intervalMs = intervalMinutes * 60 * 1000;
-    
-    console.log(`[Volatility] 启动，检查间隔：${intervalMinutes} 分钟`);
+    console.log('[Volatility] 启动（事件驱动模式）');
     
     // 等待 WebSocket 数据流入后再开始第一次检查（方案 2）
     // 修复：不依赖 symbolCache，而是检查是否有实际价格数据
@@ -161,10 +158,7 @@ class VolatilityEngine {
       this._runCheck();
     }
     
-    // 定时执行
-    this.checkInterval = setInterval(() => {
-      this._runCheck();
-    }, intervalMs);
+    // 不再周期扫描：后续由价格更新事件实时触发
   }
 
   /**

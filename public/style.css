@@ -318,6 +318,16 @@ h2 {
   font-family: 'Courier New', monospace;
   font-weight: 600;
   color: #00d9ff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 监控列表：当前价格列固定宽度，避免数字跳动导致视觉抖动 */
+#monitor .data-table th:nth-child(3),
+#monitor .data-table td:nth-child(3) {
+  width: 140px;
+  min-width: 140px;
+  max-width: 140px;
+  white-space: nowrap;
 }
 
 .direction-cell {
