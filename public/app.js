@@ -711,7 +711,7 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
     // maxSymbols 已移除 - 不再限制监控币种数量
   };
 
-  const confirmed = window.confirm('系统参数需重启后生效。\n\n确认后将：\n1) 保存配置\n2) 立即重启系统\n\n是否继续？');
+  const confirmed = await showSystemSaveConfirmModal();
   if (!confirmed) {
     showToast('已取消，配置未保存', 'info');
     return;
@@ -736,6 +736,34 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
 });
 
 // ==================== 系统开关功能 ====================
+
+let systemSaveConfirmResolver = null;
+
+// 显示“保存系统配置”确认弹窗（替代原生 confirm）
+function showSystemSaveConfirmModal() {
+  return new Promise((resolve) => {
+    systemSaveConfirmResolver = resolve;
+    const modal = document.getElementById('systemSaveConfirmModal');
+    if (modal) {
+      modal.classList.add('active');
+    } else {
+      // 兜底：若弹窗元素异常缺失，降级为原生 confirm
+      resolve(window.confirm('系统参数需重启后生效。确认保存并立即重启？'));
+    }
+  });
+}
+
+function closeSystemSaveConfirmModal(result = false) {
+  const modal = document.getElementById('systemSaveConfirmModal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+  if (systemSaveConfirmResolver) {
+    const resolver = systemSaveConfirmResolver;
+    systemSaveConfirmResolver = null;
+    resolver(result);
+  }
+}
 
 // 初始化系统重启按钮（仪表盘）
 function initSystemToggle() {

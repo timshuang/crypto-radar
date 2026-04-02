@@ -487,9 +487,22 @@
         </div>
       </div>
     </div>
+
+    <!-- 保存系统参数确认弹窗 -->
+    <div id="systemSaveConfirmModal" class="modal">
+      <div class="modal-content warning">
+        <div class="modal-icon">⚙️</div>
+        <h3>确认保存系统参数并重启？</h3>
+        <p>系统参数需要重启后才会生效。确认后将：<br>1) 保存配置<br>2) 立即重启系统</p>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeSystemSaveConfirmModal(false)">取消</button>
+          <button class="btn-confirm" onclick="closeSystemSaveConfirmModal(true)">确认执行</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/app.js?v=202604021830"></script>
+  <script src="/app.js?v=202604021850"></script>
 
   <!-- 测试通知结果弹窗 -->
   <div id="test-notification-modal" class="modal">
