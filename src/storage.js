@@ -328,8 +328,11 @@ class StorageManager {
   /**
    * 初始化存储
    */
-  async init(maxRecordsPerSymbol = 720) {
+  async init(maxRecordsPerSymbol = 720, silenceMinutes = 5) {
     this.maxRecords = maxRecordsPerSymbol;
+
+    // 关键：静默期从配置读取，不再固定 5 分钟
+    this.throttle = new AlertThrottle(silenceMinutes);
     
     // 加载持久化数据
     await this.alertStateStore.load();
@@ -363,7 +366,7 @@ class StorageManager {
     // 恢复报警历史
     this.alertHistory = this.alertHistoryStore.get('history', []);
     
-    console.log(`[Storage] 初始化完成，${this.priceBuffers.size} 个币种价格缓存（纯内存模式），${this.alertHistory.length} 条报警记录`);
+    console.log(`[Storage] 初始化完成，${this.priceBuffers.size} 个币种价格缓存（纯内存模式），${this.alertHistory.length} 条报警记录，静默期=${silenceMinutes}分钟`);
     
     // 启动全局定时器，每秒刷入 pending 数据（确保每秒都有数据）
     this.startFlushInterval();

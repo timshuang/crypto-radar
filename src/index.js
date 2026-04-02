@@ -73,7 +73,10 @@ async function init() {
     // 2. 初始化存储
     console.log('[Init] 初始化存储...');
     app.storage = storage;
-    await app.storage.init(settings.maxPriceRecordsPerSymbol);
+    await app.storage.init(
+      settings.maxPriceRecordsPerSymbol,
+      settings.alertSilenceMinutes || 5
+    );
     
     // 3. 初始化通知服务
     console.log('[Init] 初始化通知服务...');
