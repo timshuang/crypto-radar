@@ -51,24 +51,31 @@ class NotificationService {
       } else {
         // 开关已开启，执行推送
         try {
-          const barkConfig = {
-            key: process.env.BARK_KEY || config.bark.deviceKey,
-            soundNormal: process.env.BARK_SOUND_NORMAL || config.bark.soundNormal || 'minuet',
-            soundCritical: process.env.BARK_SOUND_CRITICAL || config.bark.soundCritical || 'alarm',
-            volume: parseInt(process.env.BARK_VOLUME) || config.bark.volume || 5,
-            serverUrl: config.bark.serverUrl || 'https://api.day.app'
-          };
-
-          if (this.testMode) {
-            results.bark = {
-              success: true,
-              testMode: true,
-              url: this.barkSender.buildUrl(barkConfig, message, options.mode),
-              title: message.title,
-              content: message.content
-            };
+          // 敏感数据只从 .env 读取
+          const barkKey = process.env.BARK_KEY;
+          if (!barkKey) {
+            console.log('[Bark] 跳过发送：BARK_KEY 未配置');
+            results.bark = { success: false, skipped: true, reason: 'key_not_configured' };
           } else {
-            results.bark = await this.barkSender.send(barkConfig, message, options.mode);
+            const barkConfig = {
+              key: barkKey,
+              soundNormal: process.env.BARK_SOUND_NORMAL || config.bark.soundNormal || 'minuet',
+              soundCritical: process.env.BARK_SOUND_CRITICAL || config.bark.soundCritical || 'alarm',
+              volume: parseInt(process.env.BARK_VOLUME) || config.bark.volume || 5,
+              serverUrl: config.bark.serverUrl || 'https://api.day.app'
+            };
+
+            if (this.testMode) {
+              results.bark = {
+                success: true,
+                testMode: true,
+                url: this.barkSender.buildUrl(barkConfig, message, options.mode),
+                title: message.title,
+                content: message.content
+              };
+            } else {
+              results.bark = await this.barkSender.send(barkConfig, message, options.mode);
+            }
           }
         } catch (err) {
           console.error(`[Notification] Bark 发送失败：${err.message}`);
@@ -80,20 +87,29 @@ class NotificationService {
     // 发送 Telegram 通知
     if (options.useTelegram && config.telegram?.enabled) {
       try {
-        const tgConfig = {
-          botToken: process.env.TG_BOT_TOKEN || config.telegram.botToken,
-          chatId: process.env.TG_CHAT_ID || config.telegram.chatId
-        };
-
-        if (this.testMode) {
-          results.telegram = {
-            success: true,
-            testMode: true,
-            url: this.telegramSender.buildUrl(tgConfig, message),
-            text: `${message.title}\n${message.content}`
-          };
+        // 敏感数据只从 .env 读取
+        const tgBotToken = process.env.TG_BOT_TOKEN;
+        const tgChatId = process.env.TG_CHAT_ID;
+        
+        if (!tgBotToken || !tgChatId) {
+          console.log('[Telegram] 跳过发送：TG_BOT_TOKEN 或 TG_CHAT_ID 未配置');
+          results.telegram = { success: false, skipped: true, reason: 'credentials_not_configured' };
         } else {
-          results.telegram = await this.telegramSender.send(tgConfig, message);
+          const tgConfig = {
+            botToken: tgBotToken,
+            chatId: tgChatId
+          };
+
+          if (this.testMode) {
+            results.telegram = {
+              success: true,
+              testMode: true,
+              url: this.telegramSender.buildUrl(tgConfig, message),
+              text: `${message.title}\n${message.content}`
+            };
+          } else {
+            results.telegram = await this.telegramSender.send(tgConfig, message);
+          }
         }
       } catch (err) {
         console.error(`[Notification] Telegram 发送失败：${err.message}`);
@@ -109,11 +125,15 @@ class NotificationService {
    */
   buildBarkUrl(alert, barkConfig, mode) {
     const message = this.templater.buildMessage(alert);
+    // 敏感数据只从 .env 读取
     const config = {
-      key: process.env.BARK_KEY || barkConfig.key || barkConfig.deviceKey,
-      sound: process.env.BARK_SOUND || barkConfig.sound || 'alarm.mp3',
+      key: process.env.BARK_KEY,
+      sound: process.env.BARK_SOUND || barkConfig.soundNormal || 'minuet',
       volume: parseInt(process.env.BARK_VOLUME) || barkConfig.volume || 8
     };
+    if (!config.key) {
+      return { error: 'BARK_KEY 未配置' };
+    }
     return this.barkSender.buildUrl(config, message, mode);
   }
 
@@ -122,10 +142,14 @@ class NotificationService {
    */
   buildTelegramUrl(alert, tgConfig) {
     const message = this.templater.buildMessage(alert);
+    // 敏感数据只从 .env 读取
     const config = {
-      botToken: process.env.TG_BOT_TOKEN || tgConfig.botToken,
-      chatId: process.env.TG_CHAT_ID || tgConfig.chatId
+      botToken: process.env.TG_BOT_TOKEN,
+      chatId: process.env.TG_CHAT_ID
     };
+    if (!config.botToken || !config.chatId) {
+      return { error: 'TG_BOT_TOKEN 或 TG_CHAT_ID 未配置' };
+    }
     return this.telegramSender.buildUrl(config, message);
   }
 

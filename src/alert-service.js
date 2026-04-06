@@ -16,9 +16,10 @@ class AlertService extends EventEmitter {
     super();
     this.config = barkConfig;
     this.enabled = barkConfig?.enabled !== false;
-    this.deviceKey = barkConfig?.deviceKey;
+    // 敏感数据只从 .env 读取
+    this.deviceKey = process.env.BARK_KEY;
     this.serverUrl = barkConfig?.serverUrl || 'https://api.day.app';
-    this.sound = barkConfig?.sound || 'alarm.mp3';
+    this.sound = barkConfig?.soundNormal || barkConfig?.sound || 'alarm.mp3';
     this.group = barkConfig?.group || 'crypto_radar';
     
     // 新增：配置管理器和通知服务
@@ -51,9 +52,10 @@ class AlertService extends EventEmitter {
   updateConfig(config) {
     this.config = config;
     this.enabled = config?.enabled !== false;
-    this.deviceKey = config?.deviceKey;
+    // 敏感数据只从 .env 读取，不从 config.json 更新
+    this.deviceKey = process.env.BARK_KEY;
     this.serverUrl = config?.serverUrl || 'https://api.day.app';
-    this.sound = config?.sound || 'alarm.mp3';
+    this.sound = config?.soundNormal || config?.sound || 'alarm.mp3';
     this.group = config?.group || 'crypto_radar';
     console.log('[Alert] 配置已更新');
   }
@@ -468,23 +470,9 @@ class AlertService extends EventEmitter {
     try {
       const tgConfig = this.configManager?.config?.telegram || {};
 
-      // 占位符过滤：避免 ENV_*/YOUR_* 等模板值误用于发送
-      const isPlaceholder = (v) => {
-        if (!v || typeof v !== 'string') return false;
-        return v.startsWith('ENV_') || v.startsWith('YOUR_') || v.endsWith('_HERE');
-      };
-      const pickRealValue = (...values) => {
-        for (const v of values) {
-          if (v === undefined || v === null || v === '') continue;
-          if (typeof v === 'string' && isPlaceholder(v)) continue;
-          return v;
-        }
-        return '';
-      };
-
-      // 统一与通知模块一致：优先 .env，fallback config
-      const botToken = pickRealValue(process.env.TG_BOT_TOKEN, tgConfig.botToken);
-      const chatId = pickRealValue(process.env.TG_CHAT_ID, tgConfig.chatId);
+      // 敏感数据只从 .env 读取
+      const botToken = process.env.TG_BOT_TOKEN;
+      const chatId = process.env.TG_CHAT_ID;
       const enabled = tgConfig.enabled === true;
 
       if (!enabled || !botToken || !chatId) {

@@ -6,6 +6,11 @@
  * - 系统总开关
  * - 全局/特定币种监控模式切换
  * - 配置验证和默认值
+ * 
+ * 敏感数据说明：
+ * - Bark Key、Telegram Token/ChatId 已从 config.json 移除
+ * - 敏感数据只存储在 .env 文件中
+ * - config.json 只存储非敏感业务配置
  */
 
 const fs = require('fs').promises;
@@ -82,10 +87,8 @@ class ConfigManager extends EventEmitter {
       errors.push('缺少 version 字段');
     }
     
-    if (!this.config.bark || !this.config.bark.deviceKey) {
-      console.warn('⚠️ 警告：Bark deviceKey 未配置，通知功能将不可用');
-      // 不添加错误，允许系统继续初始化
-    }
+    // 敏感数据（Bark Key、Telegram Token）已从 config.json 移除，只在 .env 中存储
+    // 不再验证 deviceKey/botToken/chatId
     
     if (!Array.isArray(this.config.symbols)) {
       errors.push('symbols 必须是数组');
@@ -107,7 +110,6 @@ class ConfigManager extends EventEmitter {
         if (!Array.isArray(symbol.targets)) {
           errors.push(`symbols[${index}] targets 必须是数组`);
         }
-        // 波动侦测已独立为全局 volatilityModule 配置，不再需要 per-symbol 的 volatility 配置
       });
     }
     
@@ -120,15 +122,31 @@ class ConfigManager extends EventEmitter {
    * 应用默认值
    */
   applyDefaults() {
-    // Bark 默认配置
-    if (!this.config.bark.serverUrl) {
-      this.config.bark.serverUrl = 'https://api.day.app';
+    // Bark 默认配置（非敏感字段）
+    if (this.config.bark) {
+      if (!this.config.bark.serverUrl) {
+        this.config.bark.serverUrl = 'https://api.day.app';
+      }
+      if (!this.config.bark.soundNormal) {
+        this.config.bark.soundNormal = 'minuet';
+      }
+      if (!this.config.bark.soundCritical) {
+        this.config.bark.soundCritical = 'alarm';
+      }
+      if (this.config.bark.volume === undefined) {
+        this.config.bark.volume = 5;
+      }
+      if (this.config.bark.monitorEnabled === undefined) {
+        this.config.bark.monitorEnabled = true;
+      }
+      if (this.config.bark.volatilityEnabled === undefined) {
+        this.config.bark.volatilityEnabled = true;
+      }
     }
-    if (!this.config.bark.sound) {
-      this.config.bark.sound = 'alarm.mp3';
-    }
-    if (!this.config.bark.group) {
-      this.config.bark.group = 'crypto_radar';
+    
+    // Telegram 默认配置
+    if (this.config.telegram && this.config.telegram.enabled === undefined) {
+      this.config.telegram.enabled = true;
     }
     
     // 全局设置默认值
@@ -142,9 +160,8 @@ class ConfigManager extends EventEmitter {
       this.config.settings.alertSilenceMinutes = 5;
     }
     if (!this.config.settings.maxPriceRecordsPerSymbol) {
-      this.config.settings.maxPriceRecordsPerSymbol = 720;  // 720条=12分钟
+      this.config.settings.maxPriceRecordsPerSymbol = 300;  // 小机优化：300 条≈5 分钟
     }
-    // maxSymbols 已移除 - 不再限制监控币种数量
     
     // 币种默认值
     if (Array.isArray(this.config.symbols)) {
@@ -152,7 +169,9 @@ class ConfigManager extends EventEmitter {
         if (symbol.enabled === undefined) {
           symbol.enabled = true;
         }
-        // 波动侦测已独立为全局 volatilityModule 配置，不再需要 per-symbol 的 volatility 默认值
+        if (!Array.isArray(symbol.targets)) {
+          symbol.targets = [];
+        }
       });
     }
   }
@@ -167,37 +186,23 @@ class ConfigManager extends EventEmitter {
       updatedAt: new Date().toISOString(),
       bark: {
         enabled: true,
-        deviceKey: 'YOUR_DEVICE_KEY_HERE',
         serverUrl: 'https://api.day.app',
-        sound: 'alarm.mp3',
-        group: 'crypto_radar'
+        soundNormal: 'minuet',
+        soundCritical: 'alarm',
+        volume: 5,
+        monitorEnabled: true,
+        volatilityEnabled: true
+        // 敏感数据 deviceKey 已移除，只在 .env 中存储
       },
-      symbols: [
-        {
-          symbol: 'BTCUSDT',
-          enabled: true,
-          source: 'spot',
-          targets: [
-            {
-              id: 'target_1',
-              type: 'above',
-              price: 50000,
-              enabled: true,
-              status: 'waiting'
-            }
-          ],
-          volatility: {
-            enabled: true,
-            windowMinutes: 60,
-            thresholdPercent: 2.0
-          }
-        }
-      ],
+      telegram: {
+        enabled: true
+        // 敏感数据 botToken/chatId 已移除，只在 .env 中存储
+      },
+      symbols: [],
       settings: {
         checkIntervalMinutes: 1,
         alertSilenceMinutes: 5,
-        maxPriceRecordsPerSymbol: 720
-        // maxSymbols 已移除 - 不再限制监控币种数量
+        maxPriceRecordsPerSymbol: 300  // 小机优化：300 条≈5 分钟
       }
     };
   }
@@ -307,11 +312,9 @@ class ConfigManager extends EventEmitter {
       }
     }
     
-    // 支持手动设置 enabled 状态（触发时自动关闭开关）
-    // 注意：触发时关闭的是币种级别的开关 (symbol.enabled)，而不是目标级别的开关
     if (enabled !== null) {
       target.enabled = enabled;
-      symbolConfig.enabled = enabled; // 同步更新币种级别的开关
+      symbolConfig.enabled = enabled;
       console.log(`[Config] 币种 ${symbol} 开关已${enabled ? '打开' : '关闭'}（触发自动关闭）`);
     }
     

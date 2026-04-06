@@ -1522,53 +1522,38 @@ class WebServer extends EventEmitter {
       return { success: false, error: '配置未加载' };
     }
 
-    // 占位符识别（避免把 ENV_*/YOUR_* 这类模板值回显到 UI）
-    const isPlaceholder = (v) => {
-      if (!v || typeof v !== 'string') return false;
-      return v.startsWith('ENV_') || v.startsWith('YOUR_') || v.endsWith('_HERE');
-    };
-    const pickRealValue = (...values) => {
-      for (const v of values) {
-        if (v === undefined || v === null || v === '') continue;
-        if (typeof v === 'string' && isPlaceholder(v)) continue;
-        return v;
-      }
-      return '';
-    };
-    
-    // 从环境变量读取敏感配置（优先于 config.json），但过滤占位符
-    const barkKey = pickRealValue(process.env.BARK_KEY, config.bark?.deviceKey);
-    const barkSoundNormal = pickRealValue(process.env.BARK_SOUND_NORMAL, config.bark?.soundNormal) || 'minuet';
-    const barkSoundCritical = pickRealValue(process.env.BARK_SOUND_CRITICAL, config.bark?.soundCritical) || 'alarm';
+    // 敏感数据只从 .env 读取
+    // 非敏感数据从 config.json 读取
+    const barkKey = process.env.BARK_KEY || '';
+    const barkSoundNormal = process.env.BARK_SOUND_NORMAL || config.bark?.soundNormal || 'minuet';
+    const barkSoundCritical = process.env.BARK_SOUND_CRITICAL || config.bark?.soundCritical || 'alarm';
     const barkVolume = parseInt(process.env.BARK_VOLUME) || config.bark?.volume || 5;
-    const tgBotToken = pickRealValue(process.env.TG_BOT_TOKEN, config.telegram?.botToken);
-    const tgChatId = pickRealValue(process.env.TG_CHAT_ID, config.telegram?.chatId);
+    const tgBotToken = process.env.TG_BOT_TOKEN || '';
+    const tgChatId = process.env.TG_CHAT_ID || '';
     
     return {
       success: true,
       data: {
         bark: {
           enabled: config.bark?.enabled || false,
-          deviceKey: barkKey,  // 直接显示真实值，不脱敏
+          deviceKey: barkKey,  // 从 .env 读取
           serverUrl: config.bark?.serverUrl || 'https://api.day.app',
           soundNormal: barkSoundNormal,
           soundCritical: barkSoundCritical,
           volume: barkVolume,
           group: config.bark?.group || 'crypto_radar',
-          monitorEnabled: config.bark?.monitorEnabled !== false, // 默认 true
-          monitorMode: config.bark?.monitorMode || 'normal',
-          volatilityEnabled: config.bark?.volatilityEnabled === true, // 默认 false
-          volatilityMode: config.bark?.volatilityMode || 'normal'
+          monitorEnabled: config.bark?.monitorEnabled !== false,
+          volatilityEnabled: config.bark?.volatilityEnabled === true
         },
         telegram: {
           enabled: config.telegram?.enabled || false,
-          botToken: tgBotToken,  // 直接显示真实值，不脱敏
-          chatId: tgChatId
+          botToken: tgBotToken,  // 从 .env 读取
+          chatId: tgChatId  // 从 .env 读取
         },
         settings: {
           checkIntervalMinutes: config.settings?.checkIntervalMinutes || 1,
           alertSilenceMinutes: config.settings?.alertSilenceMinutes || 5,
-          maxPriceRecordsPerSymbol: config.settings?.maxPriceRecordsPerSymbol || 720,
+          maxPriceRecordsPerSymbol: config.settings?.maxPriceRecordsPerSymbol || 300,
           notificationTestMode: config.settings?.notificationTestMode || false
         }
       }
@@ -1640,20 +1625,10 @@ class WebServer extends EventEmitter {
   async _saveNotificationConfig(data) {
     try {
       console.log('[WebServer] _saveNotificationConfig received data:', JSON.stringify(data, null, 2));
-      console.log('[WebServer] data.bark !== undefined:', data.bark !== undefined);
-      console.log('[WebServer] data.telegram !== undefined:', data.telegram !== undefined);
       
-      if (data.bark?.enabled && !data.bark.deviceKey) {
-        throw new Error('Bark 启用时必须填写 deviceKey');
-      }
-      if (data.telegram?.enabled && (!data.telegram.botToken || !data.telegram.chatId)) {
-        throw new Error('Telegram 启用时必须填写 botToken 和 chatId');
-      }
-
       const config = this.configManager.config;
-      console.log('[WebServer] config.telegram before update:', JSON.stringify(config.telegram, null, 2));
 
-      // 准备 .env 文件更新
+      // 准备 .env 文件更新（敏感数据）
       const envUpdates = {};
       
       // 只有当 data.bark 存在时才更新 bark
@@ -1664,29 +1639,29 @@ class WebServer extends EventEmitter {
         if (data.bark.deviceKey !== undefined) {
           envUpdates.BARK_KEY = data.bark.deviceKey;
         }
-        if (data.bark.sound !== undefined) {
-          envUpdates.BARK_SOUND = data.bark.sound;
-        }
-        if (data.bark.volume !== undefined) {
-          envUpdates.BARK_VOLUME = data.bark.volume.toString();
-        }
+        // 铃声和音量也支持从 .env 读取（可选）
         if (data.bark.soundNormal !== undefined) {
           envUpdates.BARK_SOUND_NORMAL = data.bark.soundNormal;
         }
         if (data.bark.soundCritical !== undefined) {
           envUpdates.BARK_SOUND_CRITICAL = data.bark.soundCritical;
         }
+        if (data.bark.volume !== undefined) {
+          envUpdates.BARK_VOLUME = data.bark.volume.toString();
+        }
         
-        // 非敏感字段保留在 config.json（铃声使用占位符）
+        // 非敏感字段保留在 config.json（不存储敏感数据）
         config.bark = {
           ...config.bark,
           enabled: data.bark?.enabled ?? false,
-          deviceKey: 'ENV_BARK_KEY',  // 占位符
-          soundNormal: 'ENV_BARK_SOUND_NORMAL',  // 占位符
-          soundCritical: 'ENV_BARK_SOUND_CRITICAL',  // 占位符
-          volume: parseInt(data.bark?.volume) || 5,
           serverUrl: data.bark?.serverUrl ?? 'https://api.day.app',
-          group: data.bark?.group ?? 'crypto_radar'
+          soundNormal: data.bark?.soundNormal || 'minuet',
+          soundCritical: data.bark?.soundCritical || 'alarm',
+          volume: parseInt(data.bark?.volume) || 5,
+          group: data.bark?.group ?? 'crypto_radar',
+          monitorEnabled: data.bark?.monitorEnabled !== false,
+          volatilityEnabled: data.bark?.volatilityEnabled === true
+          // 不存储 deviceKey（敏感数据只在 .env）
         };
       }
 
@@ -1702,15 +1677,12 @@ class WebServer extends EventEmitter {
           envUpdates.TG_CHAT_ID = data.telegram.chatId;
         }
         
-        // 非敏感字段保留在 config.json
+        // 非敏感字段保留在 config.json（不存储敏感数据）
         config.telegram = {
           ...config.telegram,
-          enabled: data.telegram?.enabled ?? false,
-          botToken: 'ENV_TG_BOT_TOKEN',  // 占位符
-          chatId: 'ENV_TG_CHAT_ID'       // 占位符
+          enabled: data.telegram?.enabled ?? false
+          // 不存储 botToken/chatId（敏感数据只在 .env）
         };
-      } else {
-        console.log('[WebServer] NOT updating telegram config (data.telegram is undefined)');
       }
 
       // 只有当 data.settings 存在时才更新 settings
