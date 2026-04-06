@@ -46,10 +46,11 @@ class BarkSender {
   async send(config, message, mode = 'normal') {
     const url = this.buildUrl(config, message, mode);
     
-    // 打印日志（脱敏 key）
+    // 打印日志（脱敏 key，不打印完整 URL）
     const maskedKey = config.key ? config.key.substring(0, 3) + '***' : 'N/A';
     console.log(`[Bark] 发送通知：title="${message.title}", mode=${mode}, key=${maskedKey}`);
-    console.log(`[Bark] URL: ${url}`);
+    // 不打印完整 URL（避免泄露 Key），只打印目标地址
+    console.log(`[Bark] 发送到：${config.serverUrl || 'https://api.day.app'}`);
 
     return new Promise((resolve, reject) => {
       https.get(url, (res) => {
