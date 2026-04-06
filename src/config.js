@@ -160,7 +160,7 @@ class ConfigManager extends EventEmitter {
       this.config.settings.alertSilenceMinutes = 5;
     }
     if (!this.config.settings.maxPriceRecordsPerSymbol) {
-      this.config.settings.maxPriceRecordsPerSymbol = 300;  // 小机优化：300 条≈5 分钟
+      this.config.settings.maxPriceRecordsPerSymbol = 720;  // 720 条≈12 分钟
     }
     
     // 币种默认值
@@ -202,7 +202,7 @@ class ConfigManager extends EventEmitter {
       settings: {
         checkIntervalMinutes: 1,
         alertSilenceMinutes: 5,
-        maxPriceRecordsPerSymbol: 300  // 小机优化：300 条≈5 分钟
+        maxPriceRecordsPerSymbol: 720  // 720 条≈12 分钟
       }
     };
   }
