@@ -137,6 +137,7 @@ async function init() {
     console.log('[Init] 初始化 Web 服务器...');
     app.webServer = new WebServer({
       port: process.env.WEB_PORT || 3000,
+      host: process.env.WEB_HOST || '127.0.0.1',
       apiToken: process.env.API_TOKEN || 'crypto_radar_token_2024'
     });
     app.webServer.bind(app.configManager, app.storage, app, app.notificationService);

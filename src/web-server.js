@@ -41,6 +41,7 @@ class WebServer extends EventEmitter {
   constructor(options = {}) {
     super();
     this.port = options.port || 3000;
+    this.host = options.host || '127.0.0.1';
     this.apiToken = options.apiToken || 'crypto_radar_token_2024';
     this.publicDir = options.publicDir || path.join(__dirname, '..', 'public');
     this.configManager = null;
@@ -249,9 +250,9 @@ class WebServer extends EventEmitter {
         reject(err);
       });
 
-      this.server.listen(this.port, () => {
+      this.server.listen(this.port, this.host, () => {
         this.startTime = Date.now();
-        console.log(`[WebServer] 启动成功：http://localhost:${this.port}`);
+        console.log(`[WebServer] 启动成功：http://${this.host}:${this.port}`);
         console.log(`[WebServer] API Token: ${this.apiToken}`);
         console.log(`[WebServer] WebSocket 已启用`);
         resolve();

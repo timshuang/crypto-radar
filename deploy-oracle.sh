@@ -1,110 +1,358 @@
 #!/bin/bash
 # =============================================================================
-# ChainPulse 一键部署脚本
-# 目标环境：Oracle Cloud 2C1G Ubuntu 20.04
+# ChainPulse 一键部署脚本（安装/更新 + 卸载）
+# 目标环境：Oracle Cloud Ubuntu 20.04+
 # =============================================================================
 
 set -e
 
-echo "======================================"
-echo "🦐 ChainPulse 一键部署脚本"
-echo "======================================"
-echo ""
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+NC='\033[0m'
 
-# === 1. 系统检测 ===
-echo "[1/8] 系统检测..."
-
-# 检查内存
-MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
-echo "  内存总量：${MEM_TOTAL}MB"
-if [ $MEM_TOTAL -lt 800 ]; then
-  echo "  ⚠️  警告：内存小于 800MB，可能运行不稳定"
-fi
-
-# 检查 Node.js
-if ! command -v node &> /dev/null; then
-  echo "  Node.js 未安装，开始安装..."
-  curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-  sudo apt-get install -y nodejs
-  echo "  ✅ Node.js 已安装：$(node -v)"
-else
-  echo "  ✅ Node.js 已安装：$(node -v)"
-fi
-
-# 检查 Git
-if ! command -v git &> /dev/null; then
-  echo "  Git 未安装，开始安装..."
-  sudo apt-get install -y git
-fi
-echo "  ✅ Git 已安装"
-
-# === 2. 配置 Swap（1GB） ===
-echo ""
-echo "[2/8] 配置 Swap（1GB）..."
-if [ ! -f /swapfile ]; then
-  sudo fallocate -l 1G /swapfile
-  sudo chmod 600 /swapfile
-  sudo mkswap /swapfile
-  sudo swapon /swapfile
-  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-  echo "  ✅ Swap 已创建"
-else
-  echo "  ✅ Swap 已存在"
-fi
-
-# === 3. 安装 PM2 ===
-echo ""
-echo "[3/8] 安装 PM2..."
-if ! command -v pm2 &> /dev/null; then
-  sudo npm install -g pm2
-  echo "  ✅ PM2 已安装"
-else
-  echo "  ✅ PM2 已安装"
-fi
-
-# === 4. 代码部署 ===
-echo ""
-echo "[4/8] 代码部署..."
+APP_NAME="chainpulse"
 DEPLOY_DIR="$HOME/crypto-radar"
+NGINX_SITE_NAME="chainpulse"
+NGINX_AVAILABLE="/etc/nginx/sites-available/${NGINX_SITE_NAME}"
+NGINX_ENABLED="/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
 
-if [ -d "$DEPLOY_DIR" ]; then
-  echo "  检测到现有部署，执行 git pull..."
+print_header() {
+  echo "======================================"
+  echo "🦐 ChainPulse 一键部署脚本"
+  echo "======================================"
+  echo ""
+}
+
+choose_action() {
+  echo "请选择操作："
+  echo "  1) 安装 / 更新（默认）"
+  echo "  2) 卸载（仅删除 ChainPulse 相关资源）"
+  read -r -p "请输入选项 [1/2，默认1]: " ACTION_CHOICE
+  if [ "$ACTION_CHOICE" = "2" ]; then
+    ACTION="uninstall"
+  else
+    ACTION="install"
+  fi
+}
+
+choose_mode() {
+  echo "请选择部署模式："
+  echo "  1) 公网模式（默认，监听 0.0.0.0:3000）"
+  echo "  2) 安全模式（监听 127.0.0.1:3000，可选 Nginx 反代）"
+  read -r -p "请输入选项 [1/2，默认1]: " MODE_CHOICE
+
+  if [ "$MODE_CHOICE" = "2" ]; then
+    DEPLOY_MODE="secure"
+    WEB_HOST="127.0.0.1"
+    echo -e "${GREEN}已选择：安全模式${NC}"
+    echo -e "${YELLOW}提示：请确保防火墙仅开放 22/80/443，关闭公网 3000。${NC}"
+  else
+    DEPLOY_MODE="public"
+    WEB_HOST="0.0.0.0"
+    echo -e "${GREEN}已选择：公网模式${NC}"
+    echo -e "${YELLOW}提示：请确保防火墙/安全组已开放公网 3000。${NC}"
+  fi
+
+  echo ""
+}
+
+extract_domain_from_nginx() {
+  if [ -f "$NGINX_AVAILABLE" ]; then
+    # shellcheck disable=SC2002
+    DETECTED_DOMAIN=$(grep -E "^\s*server_name\s+" "$NGINX_AVAILABLE" | head -n1 | sed -E 's/^\s*server_name\s+([^;]+);/\1/' | awk '{print $1}')
+  else
+    DETECTED_DOMAIN=""
+  fi
+}
+
+confirm_delete() {
+  echo ""
+  echo -e "${RED}即将卸载 ChainPulse（仅项目相关资源）：${NC}"
+  echo "  - PM2 进程: ${APP_NAME}"
+  echo "  - 项目目录: ${DEPLOY_DIR}"
+  echo "  - Nginx 站点: ${NGINX_AVAILABLE} / ${NGINX_ENABLED}"
+  echo ""
+  echo "不会删除："
+  echo "  - 其他 PM2 项目"
+  echo "  - PM2/Node/Nginx 软件本体"
+  echo "  - 其他 Nginx 站点"
+  echo "  - Swap、防火墙、系统配置"
+  echo ""
+  read -r -p "输入 y 确认卸载（输入 n 取消）: " CONFIRM_TEXT
+  if [[ "$CONFIRM_TEXT" =~ ^[Nn]$ ]]; then
+    echo "已取消卸载。"
+    exit 0
+  fi
+  if [[ ! "$CONFIRM_TEXT" =~ ^[Yy]$ ]]; then
+    echo "未输入 y，已取消卸载。"
+    exit 0
+  fi
+}
+
+uninstall_chainpulse() {
+  extract_domain_from_nginx
+  confirm_delete
+
+  echo ""
+  echo "[卸载] 停止并删除 PM2 进程..."
+  pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+  pm2 save >/dev/null 2>&1 || true
+  echo "  ✅ PM2 进程已处理"
+
+  echo "[卸载] 删除项目目录..."
+  if [ -d "$DEPLOY_DIR" ]; then
+    rm -rf "$DEPLOY_DIR"
+    echo "  ✅ 已删除 ${DEPLOY_DIR}"
+  else
+    echo "  ↪ 项目目录不存在，跳过"
+  fi
+
+  echo "[卸载] 删除 Nginx 站点配置..."
+  if [ -L "$NGINX_ENABLED" ] || [ -f "$NGINX_ENABLED" ]; then
+    sudo rm -f "$NGINX_ENABLED"
+  fi
+  if [ -f "$NGINX_AVAILABLE" ]; then
+    sudo rm -f "$NGINX_AVAILABLE"
+  fi
+
+  if command -v nginx >/dev/null 2>&1; then
+    if sudo nginx -t >/dev/null 2>&1; then
+      sudo systemctl reload nginx || true
+    fi
+  fi
+  echo "  ✅ Nginx 站点已处理"
+
+  if [ -n "$DETECTED_DOMAIN" ]; then
+    echo ""
+    read -r -p "是否删除 ${DETECTED_DOMAIN} 的证书？[y/N]: " REMOVE_CERT
+    if [[ "$REMOVE_CERT" =~ ^[Yy]$ ]]; then
+      if command -v certbot >/dev/null 2>&1; then
+        sudo certbot delete --cert-name "$DETECTED_DOMAIN" -n || true
+        echo "  ✅ 证书删除命令已执行"
+      else
+        echo "  ↪ 未安装 certbot，跳过证书删除"
+      fi
+    else
+      echo "  ↪ 已跳过证书删除"
+    fi
+  fi
+
+  echo ""
+  echo "======================================"
+  echo "✅ ChainPulse 卸载完成"
+  echo "======================================"
+}
+
+install_nginx_and_optional_reverse_proxy() {
+  echo ""
+  echo "[8/9] 安装 Nginx..."
+  sudo apt-get update -y
+  sudo apt-get install -y nginx
+  sudo systemctl enable nginx
+  sudo systemctl start nginx
+  echo "  ✅ Nginx 已安装"
+
+  read -r -p "请输入你的域名（例如 example.com）。直接回车=跳过反代配置，仅安装 Nginx：" DOMAIN
+  if [ -z "$DOMAIN" ]; then
+    echo "  ↪ 已跳过反代配置（仅安装 Nginx）"
+    return 0
+  fi
+
+  echo ""
+  echo "  开始配置 Nginx 反代域名：$DOMAIN"
+
+  sudo tee "$NGINX_AVAILABLE" >/dev/null <<EOF
+server {
+    listen 80;
+    server_name $DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+EOF
+
+  sudo ln -sf "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+  sudo rm -f /etc/nginx/sites-enabled/default
+
+  if ! sudo nginx -t; then
+    echo -e "${RED}  ❌ Nginx 配置校验失败，已跳过反代部署。${NC}"
+    return 0
+  fi
+
+  sudo systemctl reload nginx
+  echo "  ✅ Nginx 反代（HTTP）已生效"
+
+  echo ""
+  read -r -p "请输入证书邮箱（用于 Let's Encrypt 到期提醒，直接回车跳过证书申请）：" CERT_EMAIL
+  if [ -z "$CERT_EMAIL" ]; then
+    echo "  ↪ 已跳过证书自动申请，当前为 HTTP 可访问。"
+    return 0
+  fi
+
+  echo ""
+  echo "  正在尝试自动申请 HTTPS 证书（Let's Encrypt）..."
+  sudo apt-get install -y certbot python3-certbot-nginx
+
+  set +e
+  sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$CERT_EMAIL" --redirect
+  CERTBOT_EXIT=$?
+  set -e
+
+  if [ $CERTBOT_EXIT -eq 0 ]; then
+    echo -e "${GREEN}  ✅ HTTPS 证书申请成功，已启用 443 + HTTP 自动跳转。${NC}"
+  else
+    echo -e "${RED}  ❌ 证书申请失败，已降级为 HTTP（服务仍可用）。${NC}"
+    echo "  失败日志：/var/log/letsencrypt/letsencrypt.log"
+    echo "  可重试命令："
+    echo "  sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $CERT_EMAIL --redirect"
+    echo "  若你使用 Cloudflare 代理，证书失败时可临时切换为 DNS only（灰云）后重试。"
+  fi
+}
+
+print_summary() {
+  echo ""
+  echo "======================================"
+  echo "✅ ChainPulse 部署完成！"
+  echo "======================================"
+  echo ""
+
+  if [ "$DEPLOY_MODE" = "public" ]; then
+    echo "📋 当前模式：公网模式"
+    echo "访问地址："
+    echo "  http://YOUR_SERVER_IP:3000"
+    echo ""
+    echo -e "${RED}⚠️  安全提醒：公网模式会暴露管理面板，请务必保护服务器访问权限。${NC}"
+  else
+    echo "📋 当前模式：安全模式（仅本机监听 3000）"
+    echo "本机监听："
+    echo "  http://127.0.0.1:3000"
+    echo ""
+    echo "若未配置域名反代，可使用 SSH 隧道访问："
+    echo "  ssh -L 3000:localhost:3000 -i ~/.ssh/id_rsa ubuntu@YOUR_VPS_IP"
+    echo "  浏览器打开：http://localhost:3000"
+  fi
+
+  echo ""
+  echo "在配置页面填写："
+  echo "  - Bark Key"
+  echo "  - Telegram Bot Token"
+  echo "  - Telegram Chat ID"
+  echo ""
+  echo "🔧 常用命令："
+  echo "   pm2 status          # 查看状态"
+  echo "   pm2 logs            # 查看日志"
+  echo "   pm2 restart all     # 重启服务"
+  echo "   pm2 stop all        # 停止服务"
+  echo ""
+  echo "📁 重要文件位置："
+  echo "   配置文件：$DEPLOY_DIR/config.json"
+  echo "   环境变量：$DEPLOY_DIR/.env"
+  echo "   日志文件：$DEPLOY_DIR/logs/"
+  echo ""
+  echo "======================================"
+}
+
+install_or_update() {
+  choose_mode
+
+  # === 1. 系统检测 ===
+  echo "[1/9] 系统检测..."
+
+  MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
+  echo "  内存总量：${MEM_TOTAL}MB"
+  if [ "$MEM_TOTAL" -lt 800 ]; then
+    echo "  ⚠️  警告：内存小于 800MB，可能运行不稳定"
+  fi
+
+  if ! command -v node &> /dev/null; then
+    echo "  Node.js 未安装，开始安装..."
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "  ✅ Node.js 已安装：$(node -v)"
+  else
+    echo "  ✅ Node.js 已安装：$(node -v)"
+  fi
+
+  if ! command -v git &> /dev/null; then
+    echo "  Git 未安装，开始安装..."
+    sudo apt-get install -y git
+  fi
+  echo "  ✅ Git 已安装"
+
+  # === 2. 配置 Swap（1GB） ===
+  echo ""
+  echo "[2/9] 配置 Swap（1GB）..."
+  if [ ! -f /swapfile ]; then
+    sudo fallocate -l 1G /swapfile
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+    echo "  ✅ Swap 已创建"
+  else
+    echo "  ✅ Swap 已存在"
+  fi
+
+  # === 3. 安装 PM2 ===
+  echo ""
+  echo "[3/9] 安装 PM2..."
+  if ! command -v pm2 &> /dev/null; then
+    sudo npm install -g pm2
+    echo "  ✅ PM2 已安装"
+  else
+    echo "  ✅ PM2 已安装"
+  fi
+
+  # === 4. 代码部署 ===
+  echo ""
+  echo "[4/9] 代码部署..."
+
+  if [ -d "$DEPLOY_DIR" ]; then
+    echo "  检测到现有部署，执行 git pull..."
+    cd "$DEPLOY_DIR"
+    git pull
+  else
+    echo "  首次部署，克隆代码..."
+    git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
+    cd "$DEPLOY_DIR"
+  fi
+
+  echo "  ✅ 代码已就绪"
+
+  # === 5. 安装依赖 ===
+  echo ""
+  echo "[5/9] 安装依赖..."
   cd "$DEPLOY_DIR"
-  git pull
-else
-  echo "  首次部署，克隆代码..."
-  git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
-  cd "$DEPLOY_DIR"
-fi
+  npm install --production
+  echo "  ✅ 依赖已安装"
 
-echo "  ✅ 代码已就绪"
+  # === 6. 生成 .env 文件 ===
+  echo ""
+  echo "[6/9] 生成 .env 文件..."
+  if [ ! -f .env ]; then
+    cp .env.example .env
+    echo "  ✅ .env 文件已生成（空值，启动后在配置页面填写）"
+  else
+    echo "  ✅ .env 文件已存在"
+  fi
 
-# === 5. 安装依赖 ===
-echo ""
-echo "[5/8] 安装依赖..."
-cd "$DEPLOY_DIR"
-npm install --production
-echo "  ✅ 依赖已安装"
+  # === 7. PM2 配置 ===
+  echo ""
+  echo "[7/9] 配置 PM2..."
 
-# === 6. 生成 .env 文件 ===
-echo ""
-echo "[6/8] 生成 .env 文件..."
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "  ✅ .env 文件已生成（空值，启动后在配置页面填写）"
-else
-  echo "  ✅ .env 文件已存在"
-fi
-
-# === 7. PM2 配置 ===
-echo ""
-echo "[7/8] 配置 PM2..."
-
-# 创建 PM2 配置文件
-cat > ecosystem.config.js << 'EOF'
+  cat > ecosystem.config.js <<EOF
 module.exports = {
   apps: [{
-    name: 'chainpulse',
+    name: '${APP_NAME}',
     script: 'src/index.js',
     instances: 1,
     autorestart: true,
@@ -112,7 +360,8 @@ module.exports = {
     max_memory_restart: '300M',
     env: {
       NODE_ENV: 'production',
-      PORT: 3000
+      WEB_HOST: '${WEB_HOST}',
+      WEB_PORT: 3000
     },
     error_file: './logs/error.log',
     out_file: './logs/out.log',
@@ -121,45 +370,70 @@ module.exports = {
 };
 EOF
 
-# 创建日志目录
-mkdir -p logs
+  mkdir -p logs
 
-# 启动应用
-pm2 start ecosystem.config.js --env production
-pm2 save
-pm2 startup | tail -1 | bash 2>/dev/null || true
+  pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+  pm2 start ecosystem.config.js --env production
+  pm2 save
+  pm2 startup | tail -1 | bash 2>/dev/null || true
 
-echo "  ✅ PM2 已配置并启动"
+  echo "  ✅ PM2 已配置并启动"
 
-# === 8. 输出访问说明 ===
-echo ""
-echo "======================================"
-echo "✅ ChainPulse 部署完成！"
-echo "======================================"
-echo ""
-echo "📋 访问方式："
-echo ""
-echo "1. SSH 隧道连接（推荐）："
-echo "   在本地电脑执行："
-echo "   ssh -L 3000:localhost:3000 -i ~/.ssh/id_rsa ubuntu@YOUR_VPS_IP"
-echo ""
-echo "2. 浏览器打开："
-echo "   http://localhost:3000"
-echo ""
-echo "3. 在配置页面填写："
-echo "   - Bark Key"
-echo "   - Telegram Bot Token"
-echo "   - Telegram Chat ID"
-echo ""
-echo "🔧 常用命令："
-echo "   pm2 status          # 查看状态"
-echo "   pm2 logs            # 查看日志"
-echo "   pm2 restart all     # 重启服务"
-echo "   pm2 stop all        # 停止服务"
-echo ""
-echo "📁 重要文件位置："
-echo "   配置文件：$DEPLOY_DIR/config.json"
-echo "   环境变量：$DEPLOY_DIR/.env"
-echo "   日志文件：$DEPLOY_DIR/logs/"
-echo ""
-echo "======================================"
+  # === 8. 安全模式可选 Nginx ===
+  if [ "$DEPLOY_MODE" = "secure" ]; then
+    install_nginx_and_optional_reverse_proxy
+  else
+    echo ""
+    echo "[8/9] 跳过 Nginx（公网模式默认不安装）"
+  fi
+
+  # === 9. 输出访问说明 ===
+  echo ""
+  echo "[9/9] 部署结果"
+  print_summary
+}
+
+retry_cert() {
+  local domain="$1"
+  local email="$2"
+
+  if [ -z "$domain" ] || [ -z "$email" ]; then
+    echo "用法: ./deploy-oracle.sh --retry-cert <domain> <email>"
+    echo "示例: ./deploy-oracle.sh --retry-cert trade.5202157.xyz you@example.com"
+    exit 1
+  fi
+
+  echo "[Retry Cert] 域名: $domain"
+  echo "[Retry Cert] 邮箱: $email"
+
+  sudo apt-get update -y
+  sudo apt-get install -y certbot python3-certbot-nginx nginx
+
+  if [ ! -f "$NGINX_AVAILABLE" ]; then
+    echo -e "${YELLOW}未检测到 $NGINX_AVAILABLE，请先完成安全模式下的 Nginx 反代配置。${NC}"
+    exit 1
+  fi
+
+  if ! sudo nginx -t; then
+    echo -e "${RED}Nginx 配置校验失败，请先修复后再重试。${NC}"
+    exit 1
+  fi
+
+  sudo systemctl reload nginx
+  sudo certbot --nginx -d "$domain" --non-interactive --agree-tos -m "$email" --redirect
+  echo -e "${GREEN}✅ 证书重试成功：$domain${NC}"
+}
+
+if [ "$1" = "--retry-cert" ]; then
+  retry_cert "$2" "$3"
+  exit 0
+fi
+
+print_header
+choose_action
+
+if [ "$ACTION" = "uninstall" ]; then
+  uninstall_chainpulse
+else
+  install_or_update
+fi

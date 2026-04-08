@@ -24,7 +24,9 @@ module.exports = {
     // 环境变量
     env: {
       NODE_ENV: 'production',
-      CONFIG_PATH: './config.json'
+      CONFIG_PATH: './config.json',
+      WEB_HOST: '127.0.0.1',
+      WEB_PORT: 3000
     },
     
     // 日志配置
