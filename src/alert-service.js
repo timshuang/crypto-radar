@@ -464,43 +464,35 @@ class AlertService extends EventEmitter {
         return { success: false, error: 'Telegram 未配置' };
       }
 
-      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-      const body = {
-        chat_id: chatId,
-        text: text,
-        parse_mode: 'Markdown'
-      };
-
-      // 轻量重试：网络抖动时再试一次
-      let lastError = null;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-          });
-
-          const result = await response.json();
-
-          if (result.ok) {
-            console.log('[Alert] Telegram 文本通知已发送');
-            return { success: true };
-          }
-
-          lastError = new Error(result.description || `HTTP ${response.status}`);
-          console.error(`[Alert] Telegram 文本通知失败(尝试${attempt}/2)：${lastError.message}`);
-        } catch (err) {
-          lastError = err;
-          console.error(`[Alert] Telegram 文本通知异常(尝试${attempt}/2)：${err.message}`);
-        }
-
-        if (attempt < 2) {
-          await this._sleep(1000);
-        }
+      if (!this.notificationService?.telegramSender) {
+        console.warn('[Alert] TelegramSender 未初始化，跳过文本通知');
+        return { success: false, error: 'TelegramSender 未初始化' };
       }
 
-      return { success: false, error: lastError?.message || '发送失败' };
+      const result = await this.notificationService.telegramSender.send(
+        {
+          botToken,
+          chatId
+        },
+        {
+          title: '',
+          content: text
+        }
+      );
+
+      if (result?.success) {
+        console.log('[Alert] Telegram 文本通知已发送');
+        return { success: true, message_id: result.message_id };
+      }
+
+      const errorParts = [];
+      if (result?.errorCode) errorParts.push(`code=${result.errorCode}`);
+      if (result?.statusCode) errorParts.push(`status=${result.statusCode}`);
+      if (result?.description) errorParts.push(`desc=${result.description}`);
+      if (result?.error) errorParts.push(`error=${result.error}`);
+
+      console.error(`[Alert] Telegram 文本通知失败：${errorParts.join(', ') || 'unknown_error'}`);
+      return { success: false, error: errorParts.join(', ') || 'unknown_error' };
     } catch (err) {
       console.error(`[Alert] Telegram 文本通知异常：${err.message}`);
       return { success: false, error: err.message };

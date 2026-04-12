@@ -869,15 +869,18 @@ class WSConnector {
       }
     }
     
+    const healthyConnections = Object.entries(this.connections)
+      .filter(([_, conn]) => conn !== null)
+      .map(([name, conn]) => ({
+        name,
+        connected: conn.ws.readyState === WebSocket.OPEN,
+        lastMessageTime: conn.lastMessageTime,
+        messageCount: conn.messageCount
+      }));
+
     return {
-      connections: Object.entries(this.connections)
-        .filter(([_, conn]) => conn !== null)
-        .map(([name, conn]) => ({
-          name,
-          connected: conn.ws.readyState === WebSocket.OPEN,
-          lastMessageTime: conn.lastMessageTime,
-          messageCount: conn.messageCount
-        })),
+      total: healthyConnections.length,
+      connections: healthyConnections,
       unhealthy: unhealthy.length,
       details: unhealthy
     };
