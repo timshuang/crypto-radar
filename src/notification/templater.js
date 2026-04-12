@@ -3,6 +3,24 @@
  * 负责拼装通知标题和内容
  */
 
+function normalizeSourceType(sourceType) {
+  const rawSource = String(sourceType || '').trim().toLowerCase();
+
+  if (rawSource === 'alpha' || rawSource === 'alpha代币') {
+    return 'alpha';
+  }
+
+  if (rawSource === 'spot' || rawSource === '现货') {
+    return '现货';
+  }
+
+  if (rawSource === 'contract' || rawSource === '合约') {
+    return '合约';
+  }
+
+  return '现货';
+}
+
 class Templater {
   /**
    * 构建消息对象
@@ -25,11 +43,10 @@ class Templater {
    * 示例：[现货] BTCUSDT 上穿 69900
    */
   buildTargetAlert(alert) {
-    const sourceType = alert.sourceType || '现货'; // '现货' 或 'Alpha'
+    const sourceType = normalizeSourceType(alert.sourceType);
     const action = alert.type === 'above' ? '上穿' : '下破';
     
-    const title = '价格预警';  // 标题保持不变
-    // 极致极简格式：禁止出现"价格预警"、"动作"、"币种类型"等任何辅助性汉字
+    const title = '价格预警';
     const content = `[${sourceType}] ${alert.symbol} ${action} ${this.formatPrice(alert.targetPrice)}`;
     
     return { title, content };
@@ -41,8 +58,7 @@ class Templater {
    * 示例：[现货] BTCUSDT 5min 上涨 3.5%
    */
   buildVolatilityAlert(alert) {
-    const rawSource = String(alert.sourceType || (alert.source === 'alpha' ? 'alpha' : 'spot')).toLowerCase();
-    const sourceLabel = rawSource === 'alpha' ? 'alpha' : '现货';
+    const sourceLabel = normalizeSourceType(alert.sourceType);
     const direction = alert.direction === 'down' ? '下跌' : '上涨';
 
     const title = '波动预警';

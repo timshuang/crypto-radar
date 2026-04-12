@@ -19,6 +19,20 @@ class TelegramSender {
     return `${baseUrl}/bot${config.botToken}/sendMessage?chat_id=${config.chatId}&text=${text}`;
   }
 
+  maskChatId(chatId) {
+    if (!chatId) return '***';
+    const raw = String(chatId);
+    if (raw.length <= 4) return '***';
+    return `${raw.slice(0, 2)}***${raw.slice(-2)}`;
+  }
+
+  sanitizeDescription(description) {
+    if (!description) return 'unknown_error';
+    return String(description)
+      .replace(/bot\d+:[A-Za-z0-9_-]+/g, 'bot***')
+      .replace(/chat_id[=:\s-]*-?\d+/gi, 'chat_id=***');
+  }
+
   /**
    * 发送 Telegram 消息
    * @param {Object} config - Telegram 配置
@@ -39,8 +53,21 @@ class TelegramSender {
         res.on('end', () => {
           try {
             const result = JSON.parse(data);
+            const success = result.ok === true;
+
+            if (!success) {
+              resolve({
+                success: false,
+                statusCode: res.statusCode,
+                errorCode: result.error_code || res.statusCode,
+                description: this.sanitizeDescription(result.description),
+                chatIdMasked: this.maskChatId(config.chatId)
+              });
+              return;
+            }
+
             resolve({
-              success: result.ok === true,
+              success: true,
               message_id: result.result?.message_id
             });
           } catch (err) {

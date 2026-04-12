@@ -237,6 +237,15 @@ class VolatilityMonitor {
     this.alertService = alertService;
   }
 
+  _isDebugEnabled() {
+    try {
+      const configManager = require('./config');
+      return configManager?.config?.debug === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /**
    * 检查波动
    */
@@ -288,7 +297,7 @@ class VolatilityMonitor {
     
     // 检查静默期
     if (!this.storage.canAlert(volatilityKey)) {
-      if (isTrackedSpot) {
+      if (isTrackedSpot && this._isDebugEnabled()) {
         console.log(`[Volatility][TrackedSpot] stage=handleTrigger.silenced, symbol=${symbol}, key=${volatilityKey}`);
       }
       console.log(`[Volatility] ${symbol} 在静默期，跳过`);
@@ -297,7 +306,7 @@ class VolatilityMonitor {
     
     // ⚠️ 关键修复：立即设置静默期（同步），防止竞态条件
     this.storage.setAlertSilence(volatilityKey);
-    if (isTrackedSpot) {
+    if (isTrackedSpot && this._isDebugEnabled()) {
       console.log(`[Volatility][TrackedSpot] stage=handleTrigger.send, symbol=${symbol}, key=${volatilityKey}, volatility=${(volatility || 0).toFixed(2)}, threshold=${threshold}, sourceType=${sourceType || 'N/A'}, windowMinutes=${windowMinutes}`);
     }
     
@@ -314,14 +323,14 @@ class VolatilityMonitor {
     );
     
     if (sent) {
-      if (isTrackedSpot) {
+      if (isTrackedSpot && this._isDebugEnabled()) {
         console.log(`[Volatility][TrackedSpot] stage=handleTrigger.sent, symbol=${symbol}, key=${volatilityKey}`);
       }
       console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发`);
       return true;
     }
     
-    if (isTrackedSpot) {
+    if (isTrackedSpot && this._isDebugEnabled()) {
       console.log(`[Volatility][TrackedSpot] stage=handleTrigger.sendFailed, symbol=${symbol}, key=${volatilityKey}`);
     }
     console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发（通知发送失败）`);

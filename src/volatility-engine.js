@@ -15,6 +15,10 @@
  */
 
 class VolatilityEngine {
+  _isDebugEnabled() {
+    return this.configManager?.config?.debug === true;
+  }
+
   _isTrackedAlphaSymbol(symbol) {
     return ['PRL', 'EDGE', 'UP', 'BASED'].includes(String(symbol || '').toUpperCase());
   }
@@ -28,6 +32,9 @@ class VolatilityEngine {
   }
 
   _logTrackedAlpha(stage, payload = {}) {
+    if (!this._isDebugEnabled()) {
+      return;
+    }
     const entries = Object.entries(payload)
       .map(([key, value]) => `${key}=${value}`)
       .join(', ');
@@ -35,6 +42,9 @@ class VolatilityEngine {
   }
 
   _logTrackedSpot(stage, payload = {}) {
+    if (!this._isDebugEnabled()) {
+      return;
+    }
     const entries = Object.entries(payload)
       .map(([key, value]) => `${key}=${value}`)
       .join(', ');
@@ -510,7 +520,9 @@ class VolatilityEngine {
 
     if (volatilityResult && volatilityResult.isTriggered) {
       this._flowStats.triggered++;
-      console.log(`[Volatility][Flow] second=${this._flowStats.second}, entered=${this._flowStats.entered}, spotEntered=${this._flowStats.spotEntered}, alphaEntered=${this._flowStats.alphaEntered}, withResult=${this._flowStats.withResult}, triggered=${this._flowStats.triggered}, symbol=${update.symbol}, key=${priceKey}`);
+      if (this._isDebugEnabled()) {
+        console.log(`[Volatility][Flow] second=${this._flowStats.second}, entered=${this._flowStats.entered}, spotEntered=${this._flowStats.spotEntered}, alphaEntered=${this._flowStats.alphaEntered}, withResult=${this._flowStats.withResult}, triggered=${this._flowStats.triggered}, symbol=${update.symbol}, key=${priceKey}`);
+      }
       // 修复：使用正确的显示名称和来源
       // 规范化 symbol：去掉 USDT 后缀，确保静默期 key 一致
       const normalizedSymbol = update.symbol.replace(/USDT$/i, '').toUpperCase();

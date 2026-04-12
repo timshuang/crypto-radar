@@ -65,6 +65,15 @@ class WSConnector {
     this.alphaTokenFetchPromise = null;
   }
 
+  _isDebugEnabled() {
+    try {
+      const configManager = require('./config');
+      return configManager?.config?.debug === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   _isAlphaNumericId(value) {
     return value !== null && value !== undefined && /^\d+$/.test(String(value));
   }
@@ -229,6 +238,9 @@ class WSConnector {
   }
 
   _logAlphaResolveMiss(rawSymbol, ca, type) {
+    if (!this._isDebugEnabled()) {
+      return;
+    }
     const raw = rawSymbol === null || rawSymbol === undefined ? String(rawSymbol) : String(rawSymbol).trim();
     const cacheHas = this.alphaTokenNameCache.has(raw);
     const cacheSize = this.alphaTokenNameCache.size;
@@ -248,6 +260,9 @@ class WSConnector {
   }
 
   _logTrackedAlphaFlow(stage, payload = {}) {
+    if (!this._isDebugEnabled()) {
+      return;
+    }
     const entries = Object.entries(payload)
       .map(([key, value]) => `${key}=${value}`)
       .join(', ');
@@ -319,7 +334,7 @@ class WSConnector {
     const bucket = `${sourceName}:${sourceType}`;
     this._sourceFlowStats.counts[bucket] = (this._sourceFlowStats.counts[bucket] || 0) + 1;
 
-    if (this._sourceFlowStats.counts[bucket] <= 3) {
+    if (this._isDebugEnabled() && this._sourceFlowStats.counts[bucket] <= 3) {
       console.log(`[WS][StoreSource] second=${this._sourceFlowStats.second}, source=${bucket}, channel=${channel}, key=${key}, symbol=${displaySymbol || key}`);
     }
 
@@ -502,7 +517,7 @@ class WSConnector {
       connection.messageCount++;
       
       // 调试日志：每 100 条消息打印一次
-      if (connection.messageCount % 100 === 1) {
+      if (this._isDebugEnabled() && connection.messageCount % 100 === 1) {
         console.log(`[WS] ${connection.name} 收到消息 #${connection.messageCount}: ${JSON.stringify(msg).substring(0, 200)}`);
       }
       
@@ -535,7 +550,7 @@ class WSConnector {
           }
         }
 
-        if (parsedSpotCount > 0 && (connection.messageCount <= 5 || connection.messageCount % 100 === 1)) {
+        if (this._isDebugEnabled() && parsedSpotCount > 0 && (connection.messageCount <= 5 || connection.messageCount % 100 === 1)) {
           console.log(`[WS][Flow] ${connection.name} parsedSpotTokens=${parsedSpotCount}, messageCount=${connection.messageCount}`);
         }
       }
@@ -647,7 +662,7 @@ class WSConnector {
             }
           }
 
-          if (parsedAlphaCount > 0 && (connection.messageCount <= 5 || connection.messageCount % 100 === 1)) {
+          if (this._isDebugEnabled() && parsedAlphaCount > 0 && (connection.messageCount <= 5 || connection.messageCount % 100 === 1)) {
             console.log(`[WS][Flow] ${connection.name} parsedAlphaTokens=${parsedAlphaCount}, messageCount=${connection.messageCount}, symbolCache=${this.symbolCache.size}`);
           }
         }

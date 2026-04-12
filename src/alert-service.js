@@ -230,21 +230,6 @@ class AlertService extends EventEmitter {
    * 发送价格目标告警
    */
   async sendTargetAlert(symbol, type, price, currentPrice) {
-    const direction = type === 'above' ? '📈 突破' : '📉 跌破';
-    const emoji = type === 'above' ? '⬆️' : '⬇️';
-    
-    const title = `${emoji} 价格目标`;
-    const body = `${symbol} ${direction} $${price.toLocaleString()}\n当前价：$${currentPrice.toLocaleString()}`;
-    
-    // 发送 Bark 通知（旧逻辑，保持兼容）
-    const barkSent = await this.send({
-      title,
-      body,
-      level: 'critical',
-      symbol,
-      type: 'target'
-    });
-    
     // 发送网页弹窗通知
     await this.sendWebAlert({
       symbol,
@@ -255,7 +240,7 @@ class AlertService extends EventEmitter {
       triggeredAt: Date.now()
     });
     
-    // 发送外部通知（新通知服务）
+    // 发送外部通知（统一走新通知服务）
     const alert = {
       symbol,
       source: 'target',
@@ -264,26 +249,15 @@ class AlertService extends EventEmitter {
       currentPrice,
       sourceType: this._getSourceType(symbol)
     };
-    await this.sendExternalNotification(alert);
+    const results = await this.sendExternalNotification(alert, { mode: 'critical' });
     
-    return barkSent;
+    return Boolean(results?.bark?.success || results?.telegram?.success);
   }
 
   /**
    * 发送波动告警
    */
   async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null, windowMinutes = null, sourceType = null) {
-    const title = '🌊 波动侦测';
-    const body = `${symbol} 波动 ${(volatility || 0).toFixed(2)}% (阈值 ${(threshold || 0).toFixed(1)}%)\n区间：$${min?.toLocaleString() || 'N/A'} - $${max?.toLocaleString() || 'N/A'}`;
-    
-    const barkSent = await this.send({
-      title,
-      body,
-      level: 'default',
-      symbol,
-      type: 'volatility'
-    });
-    
     // 使用传入的 windowMinutes，如果没有则从配置读取
     const actualWindowMinutes = windowMinutes || this.configManager?.config?.volatilityModule?.windowMinutes || 5;
     
@@ -300,7 +274,7 @@ class AlertService extends EventEmitter {
       direction = currentPrice < startPrice ? 'down' : 'up';
     }
     
-    // 发送外部通知（新通知服务）
+    // 发送外部通知（统一走新通知服务）
     const alert = {
       symbol,
       source: 'volatility',
@@ -309,9 +283,9 @@ class AlertService extends EventEmitter {
       direction,
       sourceType: actualSourceType
     };
-    await this.sendExternalNotification(alert);
+    const results = await this.sendExternalNotification(alert);
     
-    return barkSent;
+    return Boolean(results?.bark?.success || results?.telegram?.success);
   }
 
   /**
@@ -389,8 +363,8 @@ class AlertService extends EventEmitter {
     
     // 2. 从 storage.symbolMapping 判断（全量模式下的 Alpha 币种）
     if (this.storage && this.storage.getCaForSymbol) {
-      const ca = this.storage.getCaForSymbol(symbol);
-      if (ca) return 'Alpha';
+      const key = this.storage.getCaForSymbol(symbol);
+      if (key && String(key).toUpperCase().startsWith('ALPHA_')) return 'Alpha';
     }
     
     // 3. 默认返回现货
@@ -405,7 +379,7 @@ class AlertService extends EventEmitter {
   async sendExternalNotification(alert, options = {}) {
     if (!this.notificationService) {
       console.warn('[Alert] 通知服务未初始化，跳过外部通知');
-      return;
+      return { bark: { success: false, skipped: true, reason: 'notificationService_not_initialized' }, telegram: null };
     }
 
     try {
@@ -443,13 +417,23 @@ class AlertService extends EventEmitter {
 
       if (results.telegram?.success) {
         console.log(`[Alert] Telegram 通知已发送：${alert.symbol}`);
-      } else if (results.telegram?.error) {
-        console.error(`[Alert] Telegram 通知失败：${results.telegram.error}`);
+      } else if (results.telegram) {
+        const tgErrorParts = [];
+        if (results.telegram.errorCode) tgErrorParts.push(`code=${results.telegram.errorCode}`);
+        if (results.telegram.statusCode) tgErrorParts.push(`status=${results.telegram.statusCode}`);
+        if (results.telegram.description) tgErrorParts.push(`desc=${results.telegram.description}`);
+        if (results.telegram.chatIdMasked) tgErrorParts.push(`chat=${results.telegram.chatIdMasked}`);
+        if (results.telegram.error) tgErrorParts.push(`error=${results.telegram.error}`);
+        console.error(`[Alert] Telegram 通知失败：${tgErrorParts.join(', ') || 'unknown_error'}`);
       }
 
       return results;
     } catch (err) {
       console.error(`[Alert] 外部通知发送失败：${err.message}`);
+      return {
+        bark: { success: false, error: err.message },
+        telegram: { success: false, error: err.message }
+      };
     }
   }
 

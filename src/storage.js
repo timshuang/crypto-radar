@@ -291,11 +291,24 @@ class JsonStore {
  * 主存储管理器
  */
 class StorageManager {
+  _isDebugEnabled() {
+    try {
+      // 延迟读取，避免循环依赖
+      const configManager = require('./config');
+      return configManager?.config?.debug === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   _isTrackedAlphaSymbol(symbol) {
     return ['PRL', 'EDGE', 'UP', 'BASED'].includes(String(symbol || '').toUpperCase());
   }
 
   _logTrackedAlpha(stage, payload = {}) {
+    if (!this._isDebugEnabled()) {
+      return;
+    }
     const entries = Object.entries(payload)
       .map(([key, value]) => `${key}=${value}`)
       .join(', ');
@@ -529,9 +542,9 @@ class StorageManager {
       }
     }
     
-    if (flushCount > 0) {
+    if (flushCount > 0 && this._isDebugEnabled()) {
       console.log(`[Storage] 刷入 ${flushCount} 个币种的价格数据（含复制上一秒）`);
-      if (pendingProcessed > 0) {
+      if (pendingProcessed > 0 && this._isDebugEnabled()) {
         console.log(`[Storage][Flow] pendingProcessed=${pendingProcessed}, spotUpdates=${spotUpdates}, alphaUpdates=${alphaUpdates}, monitorBuffers=${this.monitorPriceBuffers.size}, volatilityBuffers=${this.volatilityPriceBuffers.size}, monitorPending=${this.monitorPendingRecords.size}, volatilityPending=${this.volatilityPendingRecords.size}`);
       }
     }

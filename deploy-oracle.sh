@@ -13,6 +13,9 @@ NC='\033[0m'
 
 APP_NAME="chainpulse"
 DEPLOY_DIR="$HOME/crypto-radar"
+VERSION_FILE_NAME="VERSION"
+VERSION_META_FILE_NAME="VERSION_META"
+INSTALL_VERSION_FILE_NAME=".chainpulse-version"
 NGINX_SITE_NAME="chainpulse"
 NGINX_AVAILABLE="/etc/nginx/sites-available/${NGINX_SITE_NAME}"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
@@ -218,6 +221,52 @@ EOF
   fi
 }
 
+write_version_metadata() {
+  local branch version channel display
+
+  if [ -f "$DEPLOY_DIR/$VERSION_FILE_NAME" ]; then
+    version=$(tr -d '\r\n' < "$DEPLOY_DIR/$VERSION_FILE_NAME")
+  else
+    version="v0.0.0"
+  fi
+
+  branch=$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+  if [ "$branch" = "main" ]; then
+    channel="main"
+  else
+    channel="branch"
+  fi
+
+  display="$channel $version"
+
+  cat > "$DEPLOY_DIR/$VERSION_META_FILE_NAME" <<EOF
+CHANNEL=$channel
+VERSION=$version
+DISPLAY=$display
+EOF
+
+  cat > "$DEPLOY_DIR/$INSTALL_VERSION_FILE_NAME" <<EOF
+$display
+EOF
+
+  echo "  ✅ 当前版本：$display"
+}
+
+backup_runtime_files() {
+  local ts backup_dir
+  ts=$(date +%Y%m%d_%H%M%S)
+  backup_dir="$DEPLOY_DIR/backup/update_$ts"
+  mkdir -p "$backup_dir"
+
+  for file in config.json .env alert_state.json alert_history.json; do
+    if [ -f "$DEPLOY_DIR/$file" ]; then
+      cp "$DEPLOY_DIR/$file" "$backup_dir/"
+    fi
+  done
+
+  echo "  ✅ 已备份运行数据到 $backup_dir"
+}
+
 print_summary() {
   echo ""
   echo "======================================"
@@ -256,6 +305,7 @@ print_summary() {
   echo "📁 重要文件位置："
   echo "   配置文件：$DEPLOY_DIR/config.json"
   echo "   环境变量：$DEPLOY_DIR/.env"
+  echo "   版本文件：$DEPLOY_DIR/$INSTALL_VERSION_FILE_NAME"
   echo "   日志文件：$DEPLOY_DIR/logs/"
   echo ""
   echo "======================================"
@@ -317,9 +367,12 @@ install_or_update() {
   echo "[4/9] 代码部署..."
 
   if [ -d "$DEPLOY_DIR" ]; then
-    echo "  检测到现有部署，执行 git pull..."
+    echo "  检测到现有部署，执行更新..."
+    backup_runtime_files
     cd "$DEPLOY_DIR"
-    git pull
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    git fetch --tags origin
+    git pull --ff-only origin "$CURRENT_BRANCH"
   else
     echo "  首次部署，克隆代码..."
     git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
@@ -334,6 +387,8 @@ install_or_update() {
   cd "$DEPLOY_DIR"
   npm install --production
   echo "  ✅ 依赖已安装"
+
+  write_version_metadata
 
   # === 6. 生成 .env 文件 ===
   echo ""

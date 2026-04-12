@@ -112,8 +112,12 @@ class NotificationService {
           }
         }
       } catch (err) {
-        console.error(`[Notification] Telegram 发送失败：${err.message}`);
-        results.telegram = { success: false, error: err.message };
+        console.error(`[Notification] Telegram 发送失败：${err.message || 'unknown_error'}`);
+        results.telegram = {
+          success: false,
+          error: err.message || 'unknown_error',
+          description: 'request_exception'
+        };
       }
     }
 
