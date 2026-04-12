@@ -78,10 +78,13 @@ class PriceBuffer {
     if (!found) return null;
     
     // 关键：检查时间跨度是否满足窗口要求（必须填满窗口）
+    // 注意：秒级数据若从 t 到 t+59，共 60 个点，但首尾跨度仅为 59 秒。
+    // 因此这里按“窗口秒数 - 1”的最小首尾跨度判断，避免 1 分钟窗口永远差 1 秒。
     const actualSpan = lastTime - firstTime;
     const requiredSpan = windowMinutes * 60;
+    const minRequiredSpan = Math.max(0, requiredSpan - 1);
     
-    if (actualSpan < requiredSpan) {
+    if (actualSpan < minRequiredSpan) {
       return null;  // 数据不足，窗口未填满
     }
 
@@ -288,6 +291,17 @@ class JsonStore {
  * 主存储管理器
  */
 class StorageManager {
+  _isTrackedAlphaSymbol(symbol) {
+    return ['PRL', 'EDGE', 'UP', 'BASED'].includes(String(symbol || '').toUpperCase());
+  }
+
+  _logTrackedAlpha(stage, payload = {}) {
+    const entries = Object.entries(payload)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(', ');
+    console.log(`[Storage][TrackedAlpha] stage=${stage}${entries ? `, ${entries}` : ''}`);
+  }
+
   constructor(dataDir = null) {
     this.dataDir = dataDir || path.join(__dirname, '..');
     
@@ -323,6 +337,17 @@ class StorageManager {
     }
 
     return key.startsWith('0x') ? key.toLowerCase() : key;
+  }
+
+  _inferSourceType(key, symbol = null) {
+    const keyText = typeof key === 'string' ? key.toUpperCase() : '';
+    const symbolText = typeof symbol === 'string' ? symbol.toUpperCase() : '';
+
+    if (keyText.startsWith('0X') || keyText.startsWith('ALPHA_') || symbolText.startsWith('ALPHA_')) {
+      return 'alpha';
+    }
+
+    return 'spot';
   }
 
   /**
@@ -408,6 +433,9 @@ class StorageManager {
     const now = Date.now();
     const currentTime = Math.floor(now / 1000) * 1000; // 整秒时间戳
     let flushCount = 0;
+    let pendingProcessed = 0;
+    let spotUpdates = 0;
+    let alphaUpdates = 0;
     
     // 遍历所有已有 priceBuffer 的币种（曾经收到过数据的）
     for (const [key, buffer] of this.priceBuffers) {
@@ -415,17 +443,36 @@ class StorageManager {
       
       if (pending) {
         // 有 pending：存储最新价格
-        buffer.push(pending.time, pending.price, pending.volume);
+        // 关键：统一按当前 flush 的整秒时间写入，避免与“复制上一秒”分支混用不同秒位，
+        // 导致同一自然秒重复/跳秒，进而让窗口跨度在 58/59 秒之间抖动。
+        buffer.push(currentTime, pending.price, pending.volume);
         
         // 触发价格更新钩子（用于实时波动侦测）
+        const symbol = pending.displaySymbol || key;
         const update = {
           key: key,
-          symbol: pending.displaySymbol || key,
-          time: pending.time,
+          symbol,
+          time: currentTime,
           price: pending.price,
           volume: pending.volume,
-          source: key.startsWith('0x') ? 'alpha' : 'spot'
+          source: this._inferSourceType(key, symbol)
         };
+
+        if (update.source === 'alpha') {
+          alphaUpdates++;
+        } else {
+          spotUpdates++;
+        }
+
+        if (this._isTrackedAlphaSymbol(update.symbol)) {
+          this._logTrackedAlpha('flushPending', {
+            key,
+            symbol: update.symbol,
+            price: update.price,
+            volume: update.volume,
+            source: update.source
+          });
+        }
         
         for (const hook of this.priceUpdateHooks) {
           try {
@@ -437,6 +484,7 @@ class StorageManager {
         
         this.pendingRecords.delete(key);
         flushCount++;
+        pendingProcessed++;
       } else {
         // 无 pending：复制上一秒的最新价格
         const latest = buffer.getLatest();
@@ -449,6 +497,9 @@ class StorageManager {
     
     if (flushCount > 0) {
       console.log(`[Storage] 刷入 ${flushCount} 个币种的价格数据（含复制上一秒）`);
+      if (pendingProcessed > 0) {
+        console.log(`[Storage][Flow] pendingProcessed=${pendingProcessed}, spotUpdates=${spotUpdates}, alphaUpdates=${alphaUpdates}, priceBuffers=${this.priceBuffers.size}, pendingRemaining=${this.pendingRecords.size}`);
+      }
     }
   }
 
@@ -505,6 +556,17 @@ class StorageManager {
     // 如果是 Alpha 且提供了 displaySymbol，记录映射关系
     if (displaySymbol && normalizedKey !== displaySymbol) {
       this.setSymbolMapping(displaySymbol, normalizedKey);
+    }
+
+    if (this._isTrackedAlphaSymbol(displaySymbol)) {
+      this._logTrackedAlpha('addPriceRecord', {
+        key,
+        normalizedKey,
+        displaySymbol,
+        price,
+        volume,
+        mappedCa: this.getCaForSymbol(displaySymbol) || 'N/A'
+      });
     }
     
     // 写入 pending，同秒内覆盖（确保每秒只存最后一条）
@@ -573,6 +635,82 @@ class StorageManager {
   getWindowStats(key, windowMinutes) {
     const buffer = this.priceBuffers.get(this._normalizeKey(key));
     return buffer ? buffer.getWindowStats(windowMinutes) : null;
+  }
+
+  /**
+   * 获取价格缓冲区调试信息
+   * @param {string} key - 内部使用的 key（现货：symbol，Alpha：ca）
+   * @param {number} windowMinutes - 时间窗口（分钟）
+   * @param {number} sampleSize - 返回最近多少个点
+   */
+  getPriceBufferDebug(key, windowMinutes = 1, sampleSize = 10) {
+    const normalizedKey = this._normalizeKey(key);
+    const buffer = this.priceBuffers.get(normalizedKey);
+    if (!buffer) {
+      return {
+        exists: false,
+        key: normalizedKey,
+        windowMinutes,
+        sampleSize,
+        pending: this.pendingRecords.get(normalizedKey) || null
+      };
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const requiredSpan = windowMinutes * 60;
+    const minRequiredSpan = Math.max(0, requiredSpan - 1);
+
+    const records = [];
+    const total = buffer.count;
+    const start = Math.max(0, total - sampleSize);
+    for (let i = start; i < total; i++) {
+      const idx = (buffer.head - buffer.count + i + buffer.maxSize) % buffer.maxSize;
+      records.push({
+        time: buffer.times[idx],
+        iso: new Date(buffer.times[idx] * 1000).toISOString(),
+        price: buffer.prices[idx],
+        volume: buffer.volumes[idx]
+      });
+    }
+
+    let firstTime = null;
+    let lastTime = null;
+    let pointsInWindow = 0;
+    const windowStart = nowSec - requiredSpan;
+    for (let i = 0; i < buffer.count; i++) {
+      const idx = (buffer.head - 1 - i + buffer.maxSize) % buffer.maxSize;
+      const time = buffer.times[idx];
+      if (time < windowStart) break;
+      if (lastTime === null) lastTime = time;
+      firstTime = time;
+      pointsInWindow++;
+    }
+
+    const actualSpan = (firstTime !== null && lastTime !== null) ? (lastTime - firstTime) : null;
+
+    return {
+      exists: true,
+      key: normalizedKey,
+      count: buffer.count,
+      head: buffer.head,
+      latest: buffer.getLatest(),
+      pending: this.pendingRecords.get(normalizedKey) || null,
+      window: {
+        windowMinutes,
+        nowSec,
+        windowStart,
+        requiredSpan,
+        minRequiredSpan,
+        firstTime,
+        firstTimeIso: firstTime ? new Date(firstTime * 1000).toISOString() : null,
+        lastTime,
+        lastTimeIso: lastTime ? new Date(lastTime * 1000).toISOString() : null,
+        actualSpan,
+        pointsInWindow,
+        hasWindow: actualSpan !== null && actualSpan >= minRequiredSpan
+      },
+      recentRecords: records
+    };
   }
 
   /**
