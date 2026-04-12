@@ -310,11 +310,15 @@ class StorageManager {
     // priceHistoryStore 已移除 - 重构后只使用内存缓存
     this.alertHistoryStore = new JsonStore(path.join(this.dataDir, 'alert_history.json'));
     
-    // 内存中的价格缓冲区（按币种）
-    this.priceBuffers = new Map();
+    // 内存中的价格缓冲区，按用途分离，避免目标监控和波动侦测互相污染时间序列
+    this.priceBuffers = new Map(); // 兼容别名，指向 monitor
+    this.monitorPriceBuffers = new Map();
+    this.volatilityPriceBuffers = new Map();
     
     // 全局定时器：每秒缓存价格（用于确保每秒都有数据）
-    this.pendingRecords = new Map(); // key -> {second, time, price, volume, displaySymbol}
+    this.pendingRecords = new Map(); // 兼容别名，指向 monitor
+    this.monitorPendingRecords = new Map();
+    this.volatilityPendingRecords = new Map();
     this.flushInterval = null;
     
     // Alpha 符号映射（symbol -> ca，用于显示）
@@ -327,8 +331,34 @@ class StorageManager {
     // 报警历史（内存缓存）
     this.alertHistory = [];
     
-    // 价格更新钩子（用于实时波动侦测）
-    this.priceUpdateHooks = [];
+    // 价格更新钩子（按用途分离）
+    this.priceUpdateHooks = []; // 兼容别名，指向 monitor
+    this.monitorPriceUpdateHooks = [];
+    this.volatilityPriceUpdateHooks = [];
+  }
+
+  _normalizeChannel(channel = 'monitor') {
+    const value = String(channel || 'monitor').toLowerCase();
+    return value === 'volatility' ? 'volatility' : 'monitor';
+  }
+
+  _getChannelState(channel = 'monitor') {
+    const normalizedChannel = this._normalizeChannel(channel);
+    if (normalizedChannel === 'volatility') {
+      return {
+        channel: normalizedChannel,
+        priceBuffers: this.volatilityPriceBuffers,
+        pendingRecords: this.volatilityPendingRecords,
+        priceUpdateHooks: this.volatilityPriceUpdateHooks
+      };
+    }
+
+    return {
+      channel: 'monitor',
+      priceBuffers: this.monitorPriceBuffers,
+      pendingRecords: this.monitorPendingRecords,
+      priceUpdateHooks: this.monitorPriceUpdateHooks
+    };
   }
 
   _normalizeKey(key) {
@@ -391,7 +421,7 @@ class StorageManager {
     // 恢复报警历史
     this.alertHistory = this.alertHistoryStore.get('history', []);
     
-    console.log(`[Storage] 初始化完成，${this.priceBuffers.size} 个币种价格缓存（纯内存模式），${this.alertHistory.length} 条报警记录，静默期=${silenceMinutes}分钟`);
+    console.log(`[Storage] 初始化完成，monitor=${this.monitorPriceBuffers.size}，volatility=${this.volatilityPriceBuffers.size} 个币种价格缓存（纯内存模式），${this.alertHistory.length} 条报警记录，静默期=${silenceMinutes}分钟`);
     
     // 启动全局定时器，每秒刷入 pending 数据（确保每秒都有数据）
     this.startFlushInterval();
@@ -429,19 +459,21 @@ class StorageManager {
    * 每秒执行一次，确保每秒都有数据
    * 方案B：遍历所有已有 buffer 的币种，无 pending 时复制上一秒价格
    */
-  flushPending() {
+  flushPending(channel = null) {
     const now = Date.now();
     const currentTime = Math.floor(now / 1000) * 1000; // 整秒时间戳
     let flushCount = 0;
     let pendingProcessed = 0;
     let spotUpdates = 0;
     let alphaUpdates = 0;
-    
-    // 遍历所有已有 priceBuffer 的币种（曾经收到过数据的）
-    for (const [key, buffer] of this.priceBuffers) {
-      const pending = this.pendingRecords.get(key);
+    const channels = channel ? [this._getChannelState(channel)] : [this._getChannelState('monitor'), this._getChannelState('volatility')];
+
+    for (const state of channels) {
+      // 遍历所有已有 priceBuffer 的币种（曾经收到过数据的）
+      for (const [key, buffer] of state.priceBuffers) {
+        const pending = state.pendingRecords.get(key);
       
-      if (pending) {
+        if (pending) {
         // 有 pending：存储最新价格
         // 关键：统一按当前 flush 的整秒时间写入，避免与“复制上一秒”分支混用不同秒位，
         // 导致同一自然秒重复/跳秒，进而让窗口跨度在 58/59 秒之间抖动。
@@ -455,7 +487,8 @@ class StorageManager {
           time: currentTime,
           price: pending.price,
           volume: pending.volume,
-          source: this._inferSourceType(key, symbol)
+          source: this._inferSourceType(key, symbol),
+          channel: state.channel
         };
 
         if (update.source === 'alpha') {
@@ -474,7 +507,7 @@ class StorageManager {
           });
         }
         
-        for (const hook of this.priceUpdateHooks) {
+        for (const hook of state.priceUpdateHooks) {
           try {
             hook(update);
           } catch (err) {
@@ -482,15 +515,16 @@ class StorageManager {
           }
         }
         
-        this.pendingRecords.delete(key);
+        state.pendingRecords.delete(key);
         flushCount++;
         pendingProcessed++;
-      } else {
+        } else {
         // 无 pending：复制上一秒的最新价格
         const latest = buffer.getLatest();
         if (latest) {
           buffer.push(currentTime, latest.price, latest.volume);
           flushCount++;
+        }
         }
       }
     }
@@ -498,7 +532,7 @@ class StorageManager {
     if (flushCount > 0) {
       console.log(`[Storage] 刷入 ${flushCount} 个币种的价格数据（含复制上一秒）`);
       if (pendingProcessed > 0) {
-        console.log(`[Storage][Flow] pendingProcessed=${pendingProcessed}, spotUpdates=${spotUpdates}, alphaUpdates=${alphaUpdates}, priceBuffers=${this.priceBuffers.size}, pendingRemaining=${this.pendingRecords.size}`);
+        console.log(`[Storage][Flow] pendingProcessed=${pendingProcessed}, spotUpdates=${spotUpdates}, alphaUpdates=${alphaUpdates}, monitorBuffers=${this.monitorPriceBuffers.size}, volatilityBuffers=${this.volatilityPriceBuffers.size}, monitorPending=${this.monitorPendingRecords.size}, volatilityPending=${this.volatilityPendingRecords.size}`);
       }
     }
   }
@@ -506,12 +540,13 @@ class StorageManager {
   /**
    * 获取或创建价格缓冲区
    */
-  getPriceBuffer(symbol) {
+  getPriceBuffer(symbol, channel = 'monitor') {
     const normalizedKey = this._normalizeKey(symbol);
-    if (!this.priceBuffers.has(normalizedKey)) {
-      this.priceBuffers.set(normalizedKey, new PriceBuffer(this.maxRecords));
+    const state = this._getChannelState(channel);
+    if (!state.priceBuffers.has(normalizedKey)) {
+      state.priceBuffers.set(normalizedKey, new PriceBuffer(this.maxRecords));
     }
-    return this.priceBuffers.get(normalizedKey);
+    return state.priceBuffers.get(normalizedKey);
   }
 
   /**
@@ -547,11 +582,12 @@ class StorageManager {
    * @param {number} volume - 成交量
    * @param {string} displaySymbol - 显示用的符号名（可选，用于 Alpha）
    */
-  addPriceRecord(key, time, price, volume = 0, displaySymbol = null) {
+  addPriceRecord(key, time, price, volume = 0, displaySymbol = null, channel = 'monitor') {
     const normalizedKey = this._normalizeKey(key);
+    const state = this._getChannelState(channel);
 
     // 关键：确保新币种先创建 buffer，否则 flushPending 遍历不到该 key，导致价格始终为 0
-    this.getPriceBuffer(normalizedKey);
+    this.getPriceBuffer(normalizedKey, state.channel);
 
     // 如果是 Alpha 且提供了 displaySymbol，记录映射关系
     if (displaySymbol && normalizedKey !== displaySymbol) {
@@ -571,7 +607,7 @@ class StorageManager {
     
     // 写入 pending，同秒内覆盖（确保每秒只存最后一条）
     const currentSecond = Math.floor(time / 1000);
-    this.pendingRecords.set(normalizedKey, {
+    state.pendingRecords.set(normalizedKey, {
       second: currentSecond,
       time,
       price,
@@ -588,14 +624,15 @@ class StorageManager {
    * @param {Function} callback - 回调函数，参数为 {key, symbol, time, price, volume, source}
    * @returns {Function} - 取消注册的函数
    */
-  registerPriceUpdateHook(callback) {
-    this.priceUpdateHooks.push(callback);
+  registerPriceUpdateHook(callback, channel = 'monitor') {
+    const state = this._getChannelState(channel);
+    state.priceUpdateHooks.push(callback);
     
     // 返回取消注册的函数
     return () => {
-      const index = this.priceUpdateHooks.indexOf(callback);
+      const index = state.priceUpdateHooks.indexOf(callback);
       if (index > -1) {
-        this.priceUpdateHooks.splice(index, 1);
+        state.priceUpdateHooks.splice(index, 1);
       }
     };
   }
@@ -604,8 +641,9 @@ class StorageManager {
    * 获取最新价格
    * @param {string} key - 内部使用的 key（现货：symbol，Alpha：ca）
    */
-  getLatestPrice(key) {
-    const buffer = this.priceBuffers.get(this._normalizeKey(key));
+  getLatestPrice(key, channel = 'monitor') {
+    const state = this._getChannelState(channel);
+    const buffer = state.priceBuffers.get(this._normalizeKey(key));
     return buffer ? buffer.getLatest() : null;
   }
 
@@ -614,8 +652,8 @@ class StorageManager {
    * @param {string} key - 内部使用的 key
    * @returns {object} - { time, price, volume, symbol }
    */
-  getLatestPriceWithSymbol(key) {
-    const latest = this.getLatestPrice(key);
+  getLatestPriceWithSymbol(key, channel = 'monitor') {
+    const latest = this.getLatestPrice(key, channel);
     if (!latest) return null;
     
     // 如果是 Alpha（key 是 ca），获取显示用的 symbol
@@ -632,8 +670,9 @@ class StorageManager {
    * @param {string} key - 内部使用的 key（现货：symbol，Alpha：ca）
    * @param {number} windowMinutes - 时间窗口（分钟）
    */
-  getWindowStats(key, windowMinutes) {
-    const buffer = this.priceBuffers.get(this._normalizeKey(key));
+  getWindowStats(key, windowMinutes, channel = 'volatility') {
+    const state = this._getChannelState(channel);
+    const buffer = state.priceBuffers.get(this._normalizeKey(key));
     return buffer ? buffer.getWindowStats(windowMinutes) : null;
   }
 
@@ -643,16 +682,18 @@ class StorageManager {
    * @param {number} windowMinutes - 时间窗口（分钟）
    * @param {number} sampleSize - 返回最近多少个点
    */
-  getPriceBufferDebug(key, windowMinutes = 1, sampleSize = 10) {
+  getPriceBufferDebug(key, windowMinutes = 1, sampleSize = 10, channel = 'monitor') {
     const normalizedKey = this._normalizeKey(key);
-    const buffer = this.priceBuffers.get(normalizedKey);
+    const state = this._getChannelState(channel);
+    const buffer = state.priceBuffers.get(normalizedKey);
     if (!buffer) {
       return {
         exists: false,
+        channel: state.channel,
         key: normalizedKey,
         windowMinutes,
         sampleSize,
-        pending: this.pendingRecords.get(normalizedKey) || null
+        pending: state.pendingRecords.get(normalizedKey) || null
       };
     }
 
@@ -690,11 +731,12 @@ class StorageManager {
 
     return {
       exists: true,
+      channel: state.channel,
       key: normalizedKey,
       count: buffer.count,
       head: buffer.head,
       latest: buffer.getLatest(),
-      pending: this.pendingRecords.get(normalizedKey) || null,
+      pending: state.pendingRecords.get(normalizedKey) || null,
       window: {
         windowMinutes,
         nowSec,
@@ -883,11 +925,17 @@ class StorageManager {
     setInterval(() => {
       const now = Date.now();
       
-      for (const [symbol, buffer] of this.priceBuffers.entries()) {
+      for (const [symbol, buffer] of this.monitorPriceBuffers.entries()) {
+        if (buffer.count > this.maxRecords) {
+          console.log(`[Storage] 清理 monitor ${symbol} 过期数据：${buffer.count} -> ${this.maxRecords}`);
+        }
+      }
+
+      for (const [symbol, buffer] of this.volatilityPriceBuffers.entries()) {
         // PriceBuffer 内部已通过循环缓冲区自动限制大小
         // 这里只需确保持久化时不会超出限制
         if (buffer.count > this.maxRecords) {
-          console.log(`[Storage] 清理 ${symbol} 过期数据：${buffer.count} -> ${this.maxRecords}`);
+          console.log(`[Storage] 清理 volatility ${symbol} 过期数据：${buffer.count} -> ${this.maxRecords}`);
         }
       }
       

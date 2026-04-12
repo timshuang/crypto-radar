@@ -134,7 +134,7 @@ class VolatilityEngine {
 
     // 等待 WebSocket 数据流入后再开始第一次检查(方案 2)
     // 修复:不依赖 symbolCache,而是检查是否有实际价格数据
-    const hasPriceData = this.storage && this.storage.priceBuffers && this.storage.priceBuffers.size > 0;
+    const hasPriceData = this.storage && this.storage.volatilityPriceBuffers && this.storage.volatilityPriceBuffers.size > 0;
 
     if (!hasPriceData) {
       // 无价格数据,发送等待通知
@@ -148,9 +148,9 @@ class VolatilityEngine {
 
       // 轮询检查 priceBuffers,有数据后再开始
       const checkInterval = setInterval(() => {
-        if (this.storage.priceBuffers.size > 0) {
+        if (this.storage.volatilityPriceBuffers.size > 0) {
           clearInterval(checkInterval);
-          const count = this.storage.priceBuffers.size;
+          const count = this.storage.volatilityPriceBuffers.size;
           console.log(`[Volatility] 价格数据已就绪 (${count} 个币种),开始第一次检查...`);
 
           // 发送就绪通知
@@ -167,7 +167,7 @@ class VolatilityEngine {
       // 超时保护:30 秒后无论有没有数据都开始检查
       setTimeout(() => {
         clearInterval(checkInterval);
-        if (this.storage.priceBuffers.size === 0) {
+        if (this.storage.volatilityPriceBuffers.size === 0) {
           console.warn(`[Volatility] 等待价格数据超时,直接开始检查`);
           if (this.alertService) {
             this.alertService.sendTextToTelegram('⚠️ 等待价格数据超时\n\n直接开始检查\n价格数据可能延迟').catch(err => {
@@ -179,7 +179,7 @@ class VolatilityEngine {
       }, 30000);
     } else {
       // 已有价格数据,直接开始
-      const count = this.storage.priceBuffers.size;
+      const count = this.storage.volatilityPriceBuffers.size;
       console.log(`[Volatility] 价格数据已就绪 (${count} 个币种),开始第一次检查...`);
       this._runCheck();
     }
@@ -303,7 +303,7 @@ class VolatilityEngine {
 
         // 获取最新价格(Alpha 使用 alphaId 作为 key)
         const priceKey = (source === 'alpha' && alphaId) ? alphaId : symbol;
-        const latestPrice = this.storage.getLatestPrice(priceKey);
+        const latestPrice = this.storage.getLatestPrice(priceKey, 'volatility');
         
         // 统计
         if (source === 'alpha') {

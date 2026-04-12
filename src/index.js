@@ -124,10 +124,13 @@ async function init() {
         console.error(`[Checker] 实时检查失败：${err.message}`);
       });
 
+    }, 'monitor');
+
+    app.storage.registerPriceUpdateHook((update) => {
       app.volatilityEngine?.handlePriceUpdate(update).catch(err => {
         console.error(`[Volatility] 实时检查失败：${err.message}`);
       });
-    });
+    }, 'volatility');
     
     // 7. 初始化系统监控
     console.log('[Init] 初始化系统监控...');

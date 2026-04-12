@@ -743,6 +743,7 @@ class WebServer extends EventEmitter {
     const source = String(query.source || 'spot').trim().toLowerCase();
     const windowMinutes = Math.max(1, parseInt(query.windowMinutes || query.window || '1', 10) || 1);
     const sampleSize = Math.max(1, Math.min(120, parseInt(query.sampleSize || query.sample || '20', 10) || 20));
+    const channel = String(query.channel || 'monitor').trim().toLowerCase() === 'volatility' ? 'volatility' : 'monitor';
 
     if (!symbol) {
       return {
@@ -761,7 +762,7 @@ class WebServer extends EventEmitter {
     }
 
     const priceKey = this._resolvePriceKey(symbolConfig) || symbol;
-    const debug = this.storage?.getPriceBufferDebug?.(priceKey, windowMinutes, sampleSize);
+    const debug = this.storage?.getPriceBufferDebug?.(priceKey, windowMinutes, sampleSize, channel);
 
     return {
       success: true,
@@ -769,6 +770,7 @@ class WebServer extends EventEmitter {
         request: {
           symbol,
           source,
+          channel,
           alphaId: symbolConfig.alphaId || null,
           resolvedPriceKey: priceKey,
           windowMinutes,
