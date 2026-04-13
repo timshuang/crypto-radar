@@ -30,14 +30,21 @@ print_header() {
 
 choose_action() {
   echo "请选择操作："
-  echo "  1) 安装 / 更新（默认）"
-  echo "  2) 卸载（仅删除 ChainPulse 相关资源）"
-  read -r -p "请输入选项 [1/2，默认1]: " ACTION_CHOICE
-  if [ "$ACTION_CHOICE" = "2" ]; then
-    ACTION="uninstall"
-  else
-    ACTION="install"
-  fi
+  echo "  1) 安装"
+  echo "  2) 更新"
+  echo "  3) 卸载（仅删除 ChainPulse 相关资源）"
+  read -r -p "请输入选项 [1/2/3，默认1]: " ACTION_CHOICE
+  case "$ACTION_CHOICE" in
+    2)
+      ACTION="update"
+      ;;
+    3)
+      ACTION="uninstall"
+      ;;
+    *)
+      ACTION="install"
+      ;;
+  esac
 }
 
 choose_mode() {
@@ -254,18 +261,18 @@ EOF
 }
 
 backup_runtime_files() {
-  local ts backup_dir
-  ts=$(date +%Y%m%d_%H%M%S)
-  backup_dir="$DEPLOY_DIR/backup/update_$ts"
+  local backup_dir
+  backup_dir="$DEPLOY_DIR/backup/update_latest"
+  rm -rf "$backup_dir"
   mkdir -p "$backup_dir"
 
-  for file in config.json .env alert_state.json alert_history.json; do
+  for file in config.json .env alert_history.json; do
     if [ -f "$DEPLOY_DIR/$file" ]; then
       cp "$DEPLOY_DIR/$file" "$backup_dir/"
     fi
   done
 
-  echo "  ✅ 已备份运行数据到 $backup_dir"
+  echo "  ✅ 已备份关键配置到 $backup_dir"
 }
 
 print_summary() {
@@ -312,7 +319,7 @@ print_summary() {
   echo "======================================"
 }
 
-install_or_update() {
+run_prechecks() {
   choose_mode
 
   # === 1. 系统检测 ===
@@ -379,22 +386,23 @@ install_or_update() {
     echo "  ✅ PM2 已安装"
   fi
 
+}
+
+install_chainpulse() {
+  run_prechecks
+
   # === 4. 代码部署 ===
   echo ""
   echo "[4/9] 代码部署..."
 
-  if [ -d "$DEPLOY_DIR" ]; then
-    echo "  检测到现有部署，执行更新..."
-    backup_runtime_files
-    cd "$DEPLOY_DIR"
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    git fetch --tags origin
-    git pull --ff-only origin "$CURRENT_BRANCH"
-  else
-    echo "  首次部署，克隆代码..."
-    git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
-    cd "$DEPLOY_DIR"
+  if [ -d "$DEPLOY_DIR/.git" ] || [ -f "$DEPLOY_DIR/config.json" ] || [ -f "$DEPLOY_DIR/.env" ]; then
+    echo -e "${RED}  ❌ 检测到现有部署目录：$DEPLOY_DIR${NC}"
+    echo "  请改用“更新”操作，避免覆盖已有部署。"
+    exit 1
   fi
+
+  git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
+  cd "$DEPLOY_DIR"
 
   echo "  ✅ 代码已就绪"
 
@@ -414,7 +422,7 @@ install_or_update() {
     cp .env.example .env
     echo "  ✅ .env 文件已生成（空值，启动后在配置页面填写）"
   else
-    echo "  ✅ .env 文件已存在"
+    echo "  ✅ .env 文件已存在，保持原样"
   fi
 
   # === 7. PM2 配置 ===
@@ -465,6 +473,105 @@ EOF
   print_summary
 }
 
+update_chainpulse() {
+  run_prechecks
+
+  # === 4. 代码部署 ===
+  echo ""
+  echo "[4/9] 代码部署..."
+
+  if [ ! -d "$DEPLOY_DIR/.git" ]; then
+    echo -e "${RED}  ❌ 未检测到现有 Git 部署：$DEPLOY_DIR${NC}"
+    echo "  请改用“安装”操作。"
+    exit 1
+  fi
+
+  echo "  检测到现有部署，执行更新..."
+  backup_runtime_files
+  cd "$DEPLOY_DIR"
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+  git fetch --tags origin
+  git pull --ff-only origin "$CURRENT_BRANCH"
+
+  echo "  ✅ 代码已就绪"
+
+  # === 5. 安装依赖 ===
+  echo ""
+  echo "[5/9] 安装依赖..."
+  npm install --production
+  echo "  ✅ 依赖已安装"
+
+  write_version_metadata
+
+  # === 6. 保留现有配置 ===
+  echo ""
+  echo "[6/9] 保留现有配置..."
+  if [ -f .env ]; then
+    echo "  ✅ .env 已保留"
+  else
+    cp .env.example .env
+    echo "  ✅ .env 不存在，已按模板创建"
+  fi
+
+  if [ -f config.json ]; then
+    echo "  ✅ config.json 已保留"
+  else
+    echo -e "${YELLOW}  ⚠️ 未检测到 config.json，请在部署后补充配置${NC}"
+  fi
+
+  if [ -f alert_history.json ]; then
+    echo "  ✅ alert_history.json 已保留"
+  else
+    echo "[]" > alert_history.json
+    echo "  ✅ alert_history.json 不存在，已创建空历史文件"
+  fi
+
+  # === 7. PM2 配置 ===
+  echo ""
+  echo "[7/9] 配置 PM2..."
+
+  cat > ecosystem.config.js <<EOF
+module.exports = {
+  apps: [{
+    name: '${APP_NAME}',
+    script: 'src/index.js',
+    instances: 1,
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '300M',
+    env: {
+      NODE_ENV: 'production',
+      WEB_HOST: '${WEB_HOST}',
+      WEB_PORT: 3000
+    },
+    error_file: './logs/error.log',
+    out_file: './logs/out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss'
+  }]
+};
+EOF
+
+  mkdir -p logs
+
+  pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+  pm2 start ecosystem.config.js --env production
+  pm2 save
+  pm2 startup | tail -1 | bash 2>/dev/null || true
+
+  echo "  ✅ PM2 已配置并启动"
+
+  if [ "$DEPLOY_MODE" = "secure" ]; then
+    install_nginx_and_optional_reverse_proxy
+  else
+    echo ""
+    echo "[8/9] 跳过 Nginx（公网模式默认不安装）"
+  fi
+
+  echo ""
+  echo "[9/9] 部署结果"
+  print_summary
+}
+
 retry_cert() {
   local domain="$1"
   local email="$2"
@@ -506,6 +613,8 @@ choose_action
 
 if [ "$ACTION" = "uninstall" ]; then
   uninstall_chainpulse
+elif [ "$ACTION" = "update" ]; then
+  update_chainpulse
 else
-  install_or_update
+  install_chainpulse
 fi
