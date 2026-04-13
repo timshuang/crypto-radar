@@ -937,8 +937,9 @@ async function loadSystemStatus() {
     const status = document.getElementById('toggleStatus');
     if (status) {
       const isEnabled = data.data?.systemEnabled !== false && data.data?.running !== false;
+      const versionDisplay = data.data?.versionDisplay ? `（当前版本：${data.data.versionDisplay}）` : '';
       status.textContent = isEnabled
-        ? '系统运行中（修改系统参数后可点击“重启系统”使配置生效）'
+        ? `系统运行中${versionDisplay}`
         : '系统当前未运行';
     }
   } catch (error) {
@@ -2005,6 +2006,22 @@ async function loadBarkGlobalConfig() {
 }
 
 // 切换监控列表 Bark 通知
+function validateBarkConfigBeforeEnable(bark) {
+  const hasDeviceKey = !!bark.deviceKey;
+  const hasNormalSound = !!bark.soundNormal;
+  const hasCriticalSound = !!bark.soundCritical;
+
+  if (!hasDeviceKey) {
+    return '请先在配置页面完成 Bark Key 的设置';
+  }
+
+  if (!hasNormalSound || !hasCriticalSound) {
+    return '请先在配置页面完成 Bark 铃声的设置';
+  }
+
+  return null;
+}
+
 async function toggleMonitorBark() {
   const checkbox = document.getElementById('monitor-bark-toggle');
   const enabled = checkbox.checked;
@@ -2014,11 +2031,11 @@ async function toggleMonitorBark() {
     try {
       const config = await api('/notification/config');
       const bark = config.data?.bark || {};
+      const validationError = validateBarkConfigBeforeEnable(bark);
       
-      // 校验 API Key 和铃声
-      if (!bark.deviceKey || !bark.sound) {
-        alert('请先在配置页面完成 Bark API Key 与铃声名称的设置');
-        checkbox.checked = false;  // 强制关闭
+      if (validationError) {
+        showToast(validationError, 'error');
+        checkbox.checked = false;
         updateMonitorModeVisibility(false);
         return;
       }
@@ -2102,11 +2119,11 @@ async function toggleVolatilityBark() {
     try {
       const config = await api('/notification/config');
       const bark = config.data?.bark || {};
+      const validationError = validateBarkConfigBeforeEnable(bark);
       
-      // 校验 API Key 和铃声
-      if (!bark.deviceKey || !bark.sound) {
-        alert('请先在配置页面完成 Bark API Key 与铃声名称的设置');
-        checkbox.checked = false;  // 强制关闭
+      if (validationError) {
+        showToast(validationError, 'error');
+        checkbox.checked = false;
         updateVolatilityModeVisibility(false);
         return;
       }

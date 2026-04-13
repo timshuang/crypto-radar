@@ -15,7 +15,7 @@
  * - 全量推送连接（!miniTicker@arr + came@allTokens@ticker24）
  * - 现货和 Alpha 独立连接
  * - 断线重连（指数退避：5s → 10s → 20s → 40s → 60s 上限）
- * - 唯一 ID 管理（现货：symbol，Alpha：合约地址 ca）
+ * - 唯一 ID 管理（现货：symbol，Alpha：alphaId）
  */
 
 const WebSocket = require('ws');
@@ -51,19 +51,27 @@ class WSConnector {
     // 订阅管理
     this.priceMonitorSubscriptions = {
       spot: new Set(),    // 现货订阅列表（symbol）
-      alpha: new Map()    // Alpha 订阅列表（ca -> symbol）
+      alpha: new Map()    // Alpha 订阅列表（alphaId -> subscription）
     };
     
     // 波动侦测模式
     this.volatilityMode = 'added'; // 'added' | 'global'
     
     // 符号映射缓存（全量推送时动态建立）
-    this.symbolCache = new Map(); // ca -> symbol
-    this.alphaIdByCa = new Map(); // ca -> alpha numeric id
+    this.symbolCache = new Map(); // alphaId -> symbol
     this.alphaTokenNameCache = new Map(); // alpha numeric id -> symbol
     this.alphaTokenNameCacheTime = 0;
     this.alphaTokenNameCacheTtl = 60 * 60 * 1000; // 1 小时缓存
     this.alphaTokenFetchPromise = null;
+  }
+
+  _isDebugEnabled() {
+    try {
+      const configManager = require('./config');
+      return configManager?.config?.debug === true;
+    } catch (_) {
+      return false;
+    }
   }
 
   _isAlphaNumericId(value) {
@@ -119,7 +127,7 @@ class WSConnector {
     return null;
   }
 
-  _resolveAlphaCaById(alphaId, connection) {
+  _resolveAlphaKeyById(alphaId, connection) {
     if (!alphaId) {
       return null;
     }
@@ -130,15 +138,15 @@ class WSConnector {
     }
 
     const subscription = this._findAlphaSubscriptionById(normalizedAlphaId, connection);
-    if (subscription?.ca) {
-      return this._normalizeAlphaKey(subscription.ca);
+    if (subscription?.alphaId) {
+      return this._normalizeAlphaId(subscription.alphaId);
     }
 
     const alphaTokens = connection?.options?.alphaTokens;
     if (Array.isArray(alphaTokens)) {
       const token = alphaTokens.find(item => this._normalizeAlphaId(item?.alphaId) === normalizedAlphaId);
-      if (token?.ca) {
-        return this._normalizeAlphaKey(token.ca);
+      if (token?.alphaId) {
+        return this._normalizeAlphaId(token.alphaId);
       }
     }
 
@@ -229,18 +237,51 @@ class WSConnector {
     return this.alphaTokenNameCache.get(raw) || raw;
   }
 
+  _logAlphaResolveMiss(rawSymbol, ca, type) {
+    if (!this._isDebugEnabled()) {
+      return;
+    }
+    const raw = rawSymbol === null || rawSymbol === undefined ? String(rawSymbol) : String(rawSymbol).trim();
+    const cacheHas = this.alphaTokenNameCache.has(raw);
+    const cacheSize = this.alphaTokenNameCache.size;
+
+    console.warn(`[WS][AlphaResolveMiss] type=${type}, rawSymbol=${raw}, key=${ca || 'N/A'}, cacheHas=${cacheHas}, cacheSize=${cacheSize}`);
+  }
+
+  _isTrackedAlphaSymbol(symbol) {
+    return ['PRL', 'EDGE', 'UP', 'BASED'].includes(String(symbol || '').toUpperCase());
+  }
+
+  _isTrackedAlphaRaw(rawSymbol, streamSymbol) {
+    const raw = String(rawSymbol || '');
+    const stream = String(streamSymbol || '').toUpperCase();
+    return ['823', '838', '804', '837'].includes(raw)
+      || ['ALPHA_823USDT', 'ALPHA_838USDT', 'ALPHA_804USDT', 'ALPHA_837USDT', 'ALPHA_804USDC'].includes(stream);
+  }
+
+  _logTrackedAlphaFlow(stage, payload = {}) {
+    if (!this._isDebugEnabled()) {
+      return;
+    }
+    const entries = Object.entries(payload)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(', ');
+    console.log(`[WS][TrackedAlpha] stage=${stage}${entries ? `, ${entries}` : ''}`);
+  }
+
   /**
    * 在名称映射加载后回填已有的 symbolCache
    */
   _reconcileAlphaSymbolCache() {
-    for (const [ca, alphaId] of this.alphaIdByCa.entries()) {
-      const resolvedSymbol = this._resolveAlphaSymbol(alphaId);
-      if (!resolvedSymbol || resolvedSymbol === alphaId) {
+    for (const [alphaId, cachedSymbol] of this.symbolCache.entries()) {
+      const rawAlphaId = String(alphaId).replace(/^ALPHA_/, '');
+      const resolvedSymbol = this._resolveAlphaSymbol(rawAlphaId);
+      if (!resolvedSymbol || resolvedSymbol === rawAlphaId) {
         continue;
       }
 
-      this.symbolCache.set(ca, resolvedSymbol);
-      this.dataManager.setSymbolMapping(resolvedSymbol, ca);
+      this.symbolCache.set(alphaId, resolvedSymbol || cachedSymbol);
+      this.dataManager.setSymbolMapping(resolvedSymbol, alphaId);
     }
   }
 
@@ -258,24 +299,18 @@ class WSConnector {
     const subscriptions = new Map();
     
     for (const token of alphaTokens) {
-      let caKey;
-      
-      if (token.ca) {
-        // 优先使用 ca
-        caKey = this._normalizeAlphaKey(token.ca);
-      } else if (token.alphaId) {
-        // 向后兼容：使用 alphaId
-        caKey = token.alphaId.toLowerCase();
-      } else {
+      const alphaKey = this._normalizeAlphaId(token.alphaId);
+
+      if (!alphaKey) {
         console.warn(`[WS] Alpha 代币 ${token.symbol} 缺少 ca 和 alphaId，跳过`);
         continue;
       }
-      
-      subscriptions.set(caKey, {
+
+      subscriptions.set(alphaKey, {
         symbol: token.symbol,
-        ca: token.ca || token.alphaId,
-        alphaId: token.alphaId,
-        streamName: `alpha_${token.alphaId.replace('ALPHA_', '')}usdt@trade`
+        ca: token.ca || null,
+        alphaId: alphaKey,
+        streamName: `alpha_${alphaKey.replace('ALPHA_', '')}usdt@trade`
       });
     }
     
@@ -285,8 +320,24 @@ class WSConnector {
   /**
    * 存储价格并执行智能检查（仅价格变化才继续触发后续钩子）
    */
-  _storePriceRecord(key, time, price, volume = 0, displaySymbol = null) {
-    const result = this.dataManager.addPriceRecord(key, time, price, volume, displaySymbol);
+  _storePriceRecord(key, time, price, volume = 0, displaySymbol = null, sourceName = 'unknown', sourceType = 'unknown') {
+    const channel = String(sourceName || '').startsWith('volatility') ? 'volatility' : 'monitor';
+    const result = this.dataManager.addPriceRecord(key, time, price, volume, displaySymbol, channel);
+
+    if (!this._sourceFlowStats || this._sourceFlowStats.second !== Math.floor(Date.now() / 1000)) {
+      this._sourceFlowStats = {
+        second: Math.floor(Date.now() / 1000),
+        counts: {}
+      };
+    }
+
+    const bucket = `${sourceName}:${sourceType}`;
+    this._sourceFlowStats.counts[bucket] = (this._sourceFlowStats.counts[bucket] || 0) + 1;
+
+    if (this._isDebugEnabled() && this._sourceFlowStats.counts[bucket] <= 3) {
+      console.log(`[WS][StoreSource] second=${this._sourceFlowStats.second}, source=${bucket}, channel=${channel}, key=${key}, symbol=${displaySymbol || key}`);
+    }
+
     return Boolean(result?.changed);
   }
 
@@ -369,11 +420,11 @@ class WSConnector {
   async connectVolatilityAlpha(alphaTokens, useAllSymbols = false) {
     if (this.volatilityMode === 'global') {
       // 全量推送模式
-      console.log(`[WS] 波动侦测 Alpha 全量推送：came@allTokens@ticker24`);
+      console.log(`[WS] 波动侦测 Alpha 全量推送：!miniTicker@arr`);
       await this.loadAlphaTokenNameCache();
       this._connect('volatilityAlpha', this.alphaWsUrl, { 
         type: 'alpha-full',
-        streamNames: ['came@allTokens@ticker24']
+        streamNames: ['!miniTicker@arr']
       });
     } else {
       // 监控列表模式（组合流）
@@ -466,7 +517,7 @@ class WSConnector {
       connection.messageCount++;
       
       // 调试日志：每 100 条消息打印一次
-      if (connection.messageCount % 100 === 1) {
+      if (this._isDebugEnabled() && connection.messageCount % 100 === 1) {
         console.log(`[WS] ${connection.name} 收到消息 #${connection.messageCount}: ${JSON.stringify(msg).substring(0, 200)}`);
       }
       
@@ -474,10 +525,13 @@ class WSConnector {
       
       // 现货全量推送（数组，只保留 USDT 对）
       if (type === 'spot-full') {
-        const messages = Array.isArray(msg) ? msg : [msg];
-        
-        for (const item of messages) {
-          if (item.e === '24hrMiniTicker' || item.e === 'miniTicker') {
+        const spotFullTokens = Array.isArray(msg)
+          ? msg
+          : (Array.isArray(msg?.data) ? msg.data : (msg?.data ? [msg.data] : [msg]));
+
+        let parsedSpotCount = 0;
+        for (const item of spotFullTokens) {
+          if (item && (item.e === '24hrMiniTicker' || item.e === 'miniTicker') && item.s) {
             const symbol = item.s;
             
             // 过滤：只处理 USDT 对
@@ -485,113 +539,154 @@ class WSConnector {
               continue; // 非 USDT 对直接跳过，不存入内存
             }
             
-            const price = parseFloat(item.c);
-            const volume = parseFloat(item.q) || 0;
-            const time = item.E || Date.now();
+            const price = parseFloat(item.c ?? item.p ?? item.lp);
+            const volume = parseFloat(item.q ?? item.v) || 0;
+            const time = item.E || item.T || Date.now();
             
             if (!isNaN(price)) {
-              this._storePriceRecord(symbol, time, price, volume);
+              this._storePriceRecord(symbol, time, price, volume, null, connection.name, type);
+              parsedSpotCount++;
             }
           }
+        }
+
+        if (this._isDebugEnabled() && parsedSpotCount > 0 && (connection.messageCount <= 5 || connection.messageCount % 100 === 1)) {
+          console.log(`[WS][Flow] ${connection.name} parsedSpotTokens=${parsedSpotCount}, messageCount=${connection.messageCount}`);
         }
       }
       // 现货组合流（外层包装：{"stream":"...", "data": {...}}）
       else if (type === 'spot-combined') {
         const data = msg.data || msg;
-        if (data.e === '24hrMiniTicker' || data.e === 'miniTicker') {
+        if (data.s && (data.c || data.p || data.lp)) {
           const symbol = data.s;
-          const price = parseFloat(data.c);
-          const volume = parseFloat(data.q) || 0;
-          const time = data.E || Date.now();
+          const price = parseFloat(data.c ?? data.p ?? data.lp);
+          const volume = parseFloat(data.q ?? data.v) || 0;
+          const time = data.E || data.T || Date.now();
           
           if (!isNaN(price)) {
-            this._storePriceRecord(symbol, time, price, volume);
+            this._storePriceRecord(symbol, time, price, volume, null, connection.name, type);
           }
         }
       }
       // Alpha 全量推送或组合流
       else if (type.includes('alpha')) {
-        // Alpha 全量推送格式：{"data":{"d":[{"s":"PIEVERSE","ca":"0x...","lp":"0.566"},...]}}
-        if (msg.data && msg.data.d && Array.isArray(msg.data.d)) {
-          const tokens = msg.data.d;
-          
-          // 调试：打印前 10 个 token 的完整结构，找出币种名称字段
-          if (connection.messageCount <= 10) {
+        // Alpha 全量推送支持两种格式：
+        // 1) came@allTokens@ticker24 => { data: { d: [...] } }
+        // 2) !miniTicker@arr / !ticker@arr => [ {...}, {...} ]
+        const alphaFullTokens = (type === 'alpha-full' && Array.isArray(msg))
+          ? msg
+          : (msg.data && msg.data.d && Array.isArray(msg.data.d)
+              ? msg.data.d
+              : (type === 'alpha-full' && msg.data && msg.data.s ? [msg.data] : null));
+
+        if (alphaFullTokens) {
+          const tokens = alphaFullTokens;
+
+          if (connection.messageCount <= 10 && tokens[0]) {
             console.log(`[WS] ${connection.name} Alpha token[${connection.messageCount}]:`, JSON.stringify(tokens[0]));
           }
-          
+
+          let parsedAlphaCount = 0;
           for (const token of tokens) {
-            const rawSymbol = token.s;
-            let ca = token.ca ? this._normalizeAlphaKey(token.ca) : null;
-            
-            // 清理 ca 中的 @56 后缀
-            if (ca && ca.includes('@')) {
-              ca = ca.split('@')[0];
-            }
-
-            if (ca && type === 'alpha-full' && rawSymbol !== undefined && rawSymbol !== null) {
-              this.alphaIdByCa.set(ca, String(rawSymbol));
-            }
-
+            const streamSymbol = token.s;
+            const alphaPairMatch = typeof streamSymbol === 'string' ? streamSymbol.match(/^ALPHA_(\d+)(USDT|USDC)$/i) : null;
+            const rawSymbol = alphaPairMatch ? alphaPairMatch[1] : token.s;
+            const alphaInternalKey = alphaPairMatch ? `ALPHA_${alphaPairMatch[1]}` : null;
             const resolvedSymbol = this._resolveAlphaSymbol(rawSymbol);
             const hasResolvedSymbol = resolvedSymbol && !this._isAlphaNumericId(resolvedSymbol);
-            
-            // 过滤：不在 online 映射中的代币（offline 或未知代币）
+
+            if (this._isTrackedAlphaRaw(rawSymbol, streamSymbol) || this._isTrackedAlphaSymbol(resolvedSymbol)) {
+              this._logTrackedAlphaFlow('resolved', {
+                type,
+                rawSymbol,
+                streamSymbol: streamSymbol || 'N/A',
+                resolvedSymbol,
+                hasResolvedSymbol,
+                key: alphaInternalKey || 'N/A'
+              });
+            }
+
             if (!hasResolvedSymbol) {
+              if (connection.messageCount <= 20 || connection.messageCount % 100 === 1) {
+                this._logAlphaResolveMiss(rawSymbol, alphaInternalKey, type);
+              }
               continue;
             }
-            
-            // 价格字段：全量推送使用 'p'，组合流使用 'lp'
-            const priceValue = type === 'alpha-full' ? token.p : token.lp;
+
+            const priceValue = token.p ?? token.c ?? token.lp;
+            const volumeValue = token.q ?? token.v ?? token.vol24 ?? 0;
+            const eventTime = token.E || token.t || Date.now();
             const price = parseFloat(priceValue);
-            const time = Date.now();
-            
+            const volume = parseFloat(volumeValue) || 0;
+            const time = eventTime || Date.now();
+
             if (!isNaN(price)) {
-              // 全量推送时动态建立映射
-              if (ca && type === 'alpha-full') {
+              const stableAlphaKey = alphaInternalKey || null;
+
+              if (stableAlphaKey && type === 'alpha-full') {
                 const oldSize = this.symbolCache.size;
-                
-                // 即使只有数字 ID 也建立映射，避免显示 0x 地址
-                const symbolForMapping = hasResolvedSymbol ? resolvedSymbol : String(rawSymbol);
-                this.symbolCache.set(ca, symbolForMapping);
-                this.dataManager.setSymbolMapping(symbolForMapping, ca);
-                
-                // 调试日志：每 50 个打印一次
+                this.symbolCache.set(stableAlphaKey, resolvedSymbol);
+                this.dataManager.setSymbolMapping(resolvedSymbol, stableAlphaKey);
+
+                if (this._isTrackedAlphaRaw(rawSymbol, streamSymbol) || this._isTrackedAlphaSymbol(resolvedSymbol)) {
+                  this._logTrackedAlphaFlow('symbolCache', {
+                    rawSymbol,
+                    streamSymbol: streamSymbol || 'N/A',
+                    symbol: resolvedSymbol,
+                    key: stableAlphaKey,
+                    price,
+                    volume
+                  });
+                }
+
                 if ((oldSize === 0) || (this.symbolCache.size % 50 === 1)) {
                   console.log(`[WS] ✅ symbolCache 更新：${this.symbolCache.size} 个 Alpha 币种`);
                 }
               }
-              
-              // 使用 ca 作为内部 key（如果有）
-              const key = ca || resolvedSymbol;
-              // 传递 displaySymbol：优先使用 resolvedSymbol，其次使用 rawSymbol（数字 ID）
-              const displaySymbol = hasResolvedSymbol ? resolvedSymbol : String(rawSymbol);
-              this._storePriceRecord(key, time, price, 0, displaySymbol);
+
+              const key = stableAlphaKey || resolvedSymbol;
+              const displaySymbol = resolvedSymbol;
+              if (this._isTrackedAlphaRaw(rawSymbol, streamSymbol) || this._isTrackedAlphaSymbol(displaySymbol)) {
+                this._logTrackedAlphaFlow('storePriceRecord', {
+                  rawSymbol,
+                  streamSymbol: streamSymbol || 'N/A',
+                  symbol: displaySymbol,
+                  key,
+                  price,
+                  volume,
+                  time
+                });
+              }
+              this._storePriceRecord(key, time, price, volume, displaySymbol, connection.name, type);
+              parsedAlphaCount++;
             }
+          }
+
+          if (this._isDebugEnabled() && parsedAlphaCount > 0 && (connection.messageCount <= 5 || connection.messageCount % 100 === 1)) {
+            console.log(`[WS][Flow] ${connection.name} parsedAlphaTokens=${parsedAlphaCount}, messageCount=${connection.messageCount}, symbolCache=${this.symbolCache.size}`);
           }
         }
         // Alpha 组合流（外层包装：{"stream":"...", "data": {...}}）
+        // 重要：当前生产以 @trade 为准。虽然历史上保留过 @aggTrade 测试脚本，
+        // 但实测 Alpha @aggTrade 不稳定，不能据此回切主流程。
         // @trade：{"data":{"e":"trade","s":"ALPHA_495USDT","p":"0.49","q":"100","E":...},"stream":"alpha_495usdt@trade"}
         // @ticker：{"data":{"s":"ALPHA_495USDT","lp":"0.49","q":"100","E":...},"stream":"alpha_495usdt@ticker"}
         if (type === 'alpha-combined') {
           const combinedData = msg.data || msg;
           if (combinedData.s && (combinedData.p || combinedData.lp)) {
             const alphaId = this._normalizeAlphaId(combinedData.s) || this._extractAlphaIdFromStream(msg.stream);
-            let ca = this._resolveAlphaCaById(alphaId, connection);
+            const alphaKey = this._resolveAlphaKeyById(alphaId, connection) || alphaId;
             const price = parseFloat(combinedData.p || combinedData.lp);
             const volume = parseFloat(combinedData.q) || 0;
             const time = combinedData.E || combinedData.T || Date.now();
 
-            if (!isNaN(price) && ca) {
-              // 清理 ca 中的@56 后缀（与全量推送保持一致，避免去重失败）
-              if (ca.includes('@')) {
-                ca = ca.split('@')[0];
-              }
+            if (!isNaN(price) && alphaKey) {
               const subscription = this._findAlphaSubscriptionById(alphaId, connection);
               const displaySymbol = subscription?.symbol || alphaId;
-              this._storePriceRecord(ca, time, price, volume, displaySymbol);
-            } else if (!ca && connection.messageCount % 200 === 1) {
-              console.warn(`[WS] ${connection.name} Alpha 组合流未找到 ca 映射，跳过存储: symbol=${combinedData.s}, stream=${msg.stream || 'N/A'}`);
+              this.dataManager.setSymbolMapping(displaySymbol, alphaKey);
+              this._storePriceRecord(alphaKey, time, price, volume, displaySymbol, connection.name, type);
+            } else if (!alphaKey && connection.messageCount % 200 === 1) {
+              console.warn(`[WS] ${connection.name} Alpha 组合流未找到 alphaId 映射，跳过存储: symbol=${combinedData.s}, stream=${msg.stream || 'N/A'}`);
             }
           }
         }
@@ -774,15 +869,18 @@ class WSConnector {
       }
     }
     
+    const healthyConnections = Object.entries(this.connections)
+      .filter(([_, conn]) => conn !== null)
+      .map(([name, conn]) => ({
+        name,
+        connected: conn.ws.readyState === WebSocket.OPEN,
+        lastMessageTime: conn.lastMessageTime,
+        messageCount: conn.messageCount
+      }));
+
     return {
-      connections: Object.entries(this.connections)
-        .filter(([_, conn]) => conn !== null)
-        .map(([name, conn]) => ({
-          name,
-          connected: conn.ws.readyState === WebSocket.OPEN,
-          lastMessageTime: conn.lastMessageTime,
-          messageCount: conn.messageCount
-        })),
+      total: healthyConnections.length,
+      connections: healthyConnections,
       unhealthy: unhealthy.length,
       details: unhealthy
     };

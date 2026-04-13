@@ -10,10 +10,62 @@
 
 const http = require('http');
 const fs = require('fs').promises;
+const syncFs = require('fs');
 const path = require('path');
 const EventEmitter = require('events');
 const WebSocket = require('ws');
 const { fetchAlphaPrice } = require('./monitors');
+
+function readVersionInfo(baseDir) {
+  const versionPath = path.join(baseDir, 'VERSION');
+  const metaPath = path.join(baseDir, 'VERSION_META');
+
+  let version = 'v0.0.0';
+  let channel = 'branch';
+  let display = `${channel} ${version}`;
+
+  try {
+    if (syncFs.existsSync(versionPath)) {
+      const rawVersion = syncFs.readFileSync(versionPath, 'utf8').trim();
+      if (rawVersion) {
+        version = rawVersion;
+      }
+    }
+
+    if (syncFs.existsSync(metaPath)) {
+      const rawMeta = syncFs.readFileSync(metaPath, 'utf8');
+      const meta = Object.fromEntries(
+        rawMeta
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean)
+          .map(line => {
+            const idx = line.indexOf('=');
+            return idx > 0 ? [line.slice(0, idx), line.slice(idx + 1)] : null;
+          })
+          .filter(Boolean)
+      );
+
+      if (meta.CHANNEL === 'main' || meta.CHANNEL === 'branch') {
+        channel = meta.CHANNEL;
+      }
+      if (meta.VERSION) {
+        version = meta.VERSION;
+      }
+      if (meta.DISPLAY) {
+        display = meta.DISPLAY;
+      }
+    }
+  } catch (error) {
+    console.error('[Version] 读取版本信息失败:', error.message);
+  }
+
+  return {
+    version,
+    channel,
+    display: display || `${channel} ${version}`
+  };
+}
 
 // 简单的 URL 解析
 function parseUrl(url) {
@@ -41,6 +93,7 @@ class WebServer extends EventEmitter {
   constructor(options = {}) {
     super();
     this.port = options.port || 3000;
+    this.host = options.host || '127.0.0.1';
     this.apiToken = options.apiToken || 'crypto_radar_token_2024';
     this.publicDir = options.publicDir || path.join(__dirname, '..', 'public');
     this.configManager = null;
@@ -249,9 +302,9 @@ class WebServer extends EventEmitter {
         reject(err);
       });
 
-      this.server.listen(this.port, () => {
+      this.server.listen(this.port, this.host, () => {
         this.startTime = Date.now();
-        console.log(`[WebServer] 启动成功：http://localhost:${this.port}`);
+        console.log(`[WebServer] 启动成功：http://${this.host}:${this.port}`);
         console.log(`[WebServer] API Token: ${this.apiToken}`);
         console.log(`[WebServer] WebSocket 已启用`);
         resolve();
@@ -387,6 +440,10 @@ class WebServer extends EventEmitter {
     // GET /api/cache/status - 缓存状态
     else if (pathname === '/api/cache/status' && method === 'GET') {
       result = this._getCacheStatus();
+    }
+    // GET /api/debug/price-buffer - 查询指定币种的 buffer/window 调试信息
+    else if (pathname === '/api/debug/price-buffer' && method === 'GET') {
+      result = this._getPriceBufferDebug(query);
     }
     // GET /api/prices - 获取所有当前价格（用于搜索显示）
     else if (pathname === '/api/prices' && method === 'GET') {
@@ -598,18 +655,18 @@ class WebServer extends EventEmitter {
   // ==================== API  handlers ====================
 
   /**
-   * 统一解析取价 key（Alpha: ca -> 运行时映射 -> symbol）
+   * 统一解析取价 key（Alpha: alphaId -> 运行时映射 -> symbol）
    */
   _resolvePriceKey(symbolConfig) {
     if (!symbolConfig) return null;
     if (symbolConfig.source !== 'alpha') return symbolConfig.symbol;
 
-    // 1) 配置中的 ca
-    if (symbolConfig.ca) return symbolConfig.ca;
+    // 1) 配置中的 alphaId
+    if (symbolConfig.alphaId) return symbolConfig.alphaId;
 
-    // 2) 运行时映射（全量流建立的 symbol -> ca）
-    const mappedCa = this.storage?.getCaForSymbol?.(symbolConfig.symbol);
-    if (mappedCa) return mappedCa;
+    // 2) 运行时映射（全量流建立的 symbol -> alphaId）
+    const mappedKey = this.storage?.getCaForSymbol?.(symbolConfig.symbol);
+    if (mappedKey) return mappedKey;
 
     // 3) 最终兜底（少数场景下 Alpha 可能以 symbol 入库）
     return symbolConfig.symbol;
@@ -639,6 +696,8 @@ class WebServer extends EventEmitter {
       };
     });
 
+    const versionInfo = readVersionInfo(path.join(__dirname, '..'));
+
     return {
       success: true,
       data: {
@@ -652,7 +711,10 @@ class WebServer extends EventEmitter {
         symbolsCount: symbols.length,
         enabledCount: enabledSymbols.length,
         symbolPrices,
-        systemEnabled: this.configManager?.isSystemEnabled() || false
+        systemEnabled: this.configManager?.isSystemEnabled() || false,
+        version: versionInfo.version,
+        versionChannel: versionInfo.channel,
+        versionDisplay: versionInfo.display
       }
     };
   }
@@ -669,6 +731,52 @@ class WebServer extends EventEmitter {
         loadedAt: this.cacheLoadTime,
         age: this.cacheLoadTime ? Date.now() - this.cacheLoadTime : null,
         ttl: this.CACHE_TTL
+      }
+    };
+  }
+
+  /**
+   * GET /api/debug/price-buffer - 查询指定币种的 buffer/window 调试信息
+   */
+  _getPriceBufferDebug(query = {}) {
+    const symbol = String(query.symbol || query.key || '').trim();
+    const source = String(query.source || 'spot').trim().toLowerCase();
+    const windowMinutes = Math.max(1, parseInt(query.windowMinutes || query.window || '1', 10) || 1);
+    const sampleSize = Math.max(1, Math.min(120, parseInt(query.sampleSize || query.sample || '20', 10) || 20));
+    const channel = String(query.channel || 'monitor').trim().toLowerCase() === 'volatility' ? 'volatility' : 'monitor';
+
+    if (!symbol) {
+      return {
+        success: false,
+        error: 'symbol is required'
+      };
+    }
+
+    const symbolConfig = {
+      symbol,
+      source
+    };
+
+    if (source === 'alpha' && query.alphaId) {
+      symbolConfig.alphaId = String(query.alphaId).trim();
+    }
+
+    const priceKey = this._resolvePriceKey(symbolConfig) || symbol;
+    const debug = this.storage?.getPriceBufferDebug?.(priceKey, windowMinutes, sampleSize, channel);
+
+    return {
+      success: true,
+      data: {
+        request: {
+          symbol,
+          source,
+          channel,
+          alphaId: symbolConfig.alphaId || null,
+          resolvedPriceKey: priceKey,
+          windowMinutes,
+          sampleSize
+        },
+        debug: debug || null
       }
     };
   }

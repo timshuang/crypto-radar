@@ -237,6 +237,15 @@ class VolatilityMonitor {
     this.alertService = alertService;
   }
 
+  _isDebugEnabled() {
+    try {
+      const configManager = require('./config');
+      return configManager?.config?.debug === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /**
    * 检查波动
    */
@@ -248,7 +257,7 @@ class VolatilityMonitor {
     const { windowMinutes, thresholdPercent } = config;
     
     // 获取滑动窗口统计
-    const stats = this.storage.getWindowStats(symbol, windowMinutes);
+    const stats = this.storage.getWindowStats(symbol, windowMinutes, 'volatility');
     
     if (!stats || !stats.startPrice || !stats.endPrice) {
       return null; // 数据不足
@@ -282,17 +291,24 @@ class VolatilityMonitor {
    * 处理触发的波动
    */
   async handleTrigger(result) {
-    const { symbol, volatility, min, max, threshold, direction, windowMinutes, sourceType } = result;
+    const { symbol, volatility, min, max, threshold, direction, windowMinutes, sourceType, startPrice, endPrice } = result;
     const volatilityKey = `${symbol}_volatility`;
+    const isTrackedSpot = ['BTC', 'ETH', 'TIA', 'BTCUSDT', 'ETHUSDT', 'TIAUSDT'].includes(String(symbol || '').toUpperCase());
     
     // 检查静默期
     if (!this.storage.canAlert(volatilityKey)) {
+      if (isTrackedSpot && this._isDebugEnabled()) {
+        console.log(`[Volatility][TrackedSpot] stage=handleTrigger.silenced, symbol=${symbol}, key=${volatilityKey}`);
+      }
       console.log(`[Volatility] ${symbol} 在静默期，跳过`);
       return false;
     }
     
     // ⚠️ 关键修复：立即设置静默期（同步），防止竞态条件
     this.storage.setAlertSilence(volatilityKey);
+    if (isTrackedSpot && this._isDebugEnabled()) {
+      console.log(`[Volatility][TrackedSpot] stage=handleTrigger.send, symbol=${symbol}, key=${volatilityKey}, volatility=${(volatility || 0).toFixed(2)}, threshold=${threshold}, sourceType=${sourceType || 'N/A'}, windowMinutes=${windowMinutes}`);
+    }
     
     // 发送告警（异步操作）
     const sent = await this.alertService.sendVolatilityAlert(
@@ -303,14 +319,22 @@ class VolatilityMonitor {
       threshold,
       direction,
       windowMinutes,
-      sourceType
+      sourceType,
+      startPrice,
+      endPrice
     );
     
     if (sent) {
+      if (isTrackedSpot && this._isDebugEnabled()) {
+        console.log(`[Volatility][TrackedSpot] stage=handleTrigger.sent, symbol=${symbol}, key=${volatilityKey}`);
+      }
       console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发`);
       return true;
     }
     
+    if (isTrackedSpot && this._isDebugEnabled()) {
+      console.log(`[Volatility][TrackedSpot] stage=handleTrigger.sendFailed, symbol=${symbol}, key=${volatilityKey}`);
+    }
     console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发（通知发送失败）`);
     return true;  // 返回 true 表示已处理，避免重复触发
   }

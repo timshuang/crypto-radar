@@ -101,12 +101,12 @@ class CheckerEngine {
   }
 
   async _runCheckForSymbol(symbolConfig, hintedPrice = null) {
-    const { symbol, source, targets, ca } = symbolConfig;
-    const priceKey = (source === 'alpha' && ca) ? ca : symbol;
+    const { symbol, source, targets, alphaId } = symbolConfig;
+    const priceKey = (source === 'alpha' && alphaId) ? alphaId : symbol;
 
     const latestPrice = hintedPrice !== null
       ? { price: hintedPrice }
-      : this.storage.getLatestPrice(priceKey);
+      : this.storage.getLatestPrice(priceKey, 'monitor');
 
     if (!latestPrice) return 0;
 
