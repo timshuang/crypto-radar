@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ChainPulse 一键部署脚本（安装/更新 + 卸载）
+# ChainPulse 一键部署脚本（安装 / 更新 / 卸载）
 # 目标环境：Oracle Cloud Ubuntu 20.04+
 # =============================================================================
 
@@ -35,15 +35,9 @@ choose_action() {
   echo "  3) 卸载（仅删除 ChainPulse 相关资源）"
   read -r -p "请输入选项 [1/2/3，默认1]: " ACTION_CHOICE
   case "$ACTION_CHOICE" in
-    2)
-      ACTION="update"
-      ;;
-    3)
-      ACTION="uninstall"
-      ;;
-    *)
-      ACTION="install"
-      ;;
+    2) ACTION="update" ;;
+    3) ACTION="uninstall" ;;
+    *) ACTION="install" ;;
   esac
 }
 
@@ -68,9 +62,20 @@ choose_mode() {
   echo ""
 }
 
+load_existing_mode() {
+  if [ -f "$DEPLOY_DIR/ecosystem.config.js" ] && grep -q "WEB_HOST: '127.0.0.1'" "$DEPLOY_DIR/ecosystem.config.js"; then
+    DEPLOY_MODE="secure"
+    WEB_HOST="127.0.0.1"
+    echo "  ✅ 检测到现有部署模式：安全模式（127.0.0.1:3000）"
+  else
+    DEPLOY_MODE="public"
+    WEB_HOST="0.0.0.0"
+    echo "  ✅ 检测到现有部署模式：公网模式（0.0.0.0:3000）"
+  fi
+}
+
 extract_domain_from_nginx() {
   if [ -f "$NGINX_AVAILABLE" ]; then
-    # shellcheck disable=SC2002
     DETECTED_DOMAIN=$(grep -E "^\s*server_name\s+" "$NGINX_AVAILABLE" | head -n1 | sed -E 's/^\s*server_name\s+([^;]+);/\1/' | awk '{print $1}')
   else
     DETECTED_DOMAIN=""
@@ -223,9 +228,6 @@ EOF
   else
     echo -e "${RED}  ❌ 证书申请失败，已降级为 HTTP（服务仍可用）。${NC}"
     echo "  失败日志：/var/log/letsencrypt/letsencrypt.log"
-    echo "  可重试命令："
-    echo "  sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $CERT_EMAIL --redirect"
-    echo "  若你使用 Cloudflare 代理，证书失败时可临时切换为 DNS only（灰云）后重试。"
   fi
 }
 
@@ -286,29 +288,12 @@ print_summary() {
     echo "📋 当前模式：公网模式"
     echo "访问地址："
     echo "  http://YOUR_SERVER_IP:3000"
-    echo ""
-    echo -e "${RED}⚠️  安全提醒：公网模式会暴露管理面板，请务必保护服务器访问权限。${NC}"
   else
     echo "📋 当前模式：安全模式（仅本机监听 3000）"
     echo "本机监听："
     echo "  http://127.0.0.1:3000"
-    echo ""
-    echo "若未配置域名反代，可使用 SSH 隧道访问："
-    echo "  ssh -L 3000:localhost:3000 -i ~/.ssh/id_rsa ubuntu@YOUR_VPS_IP"
-    echo "  浏览器打开：http://localhost:3000"
   fi
 
-  echo ""
-  echo "在配置页面填写："
-  echo "  - Bark Key"
-  echo "  - Telegram Bot Token"
-  echo "  - Telegram Chat ID"
-  echo ""
-  echo "🔧 常用命令："
-  echo "   pm2 status          # 查看状态"
-  echo "   pm2 logs            # 查看日志"
-  echo "   pm2 restart all     # 重启服务"
-  echo "   pm2 stop all        # 停止服务"
   echo ""
   echo "📁 重要文件位置："
   echo "   配置文件：$DEPLOY_DIR/config.json"
@@ -320,9 +305,6 @@ print_summary() {
 }
 
 run_prechecks() {
-  choose_mode
-
-  # === 1. 系统检测 ===
   echo "[1/9] 系统检测..."
 
   MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
@@ -346,7 +328,6 @@ run_prechecks() {
   fi
   echo "  ✅ Git 已安装"
 
-  # === 2. 配置 Swap（1GB） ===
   echo ""
   echo "[2/9] 配置 Swap（1GB）..."
   TARGET_SWAP_BYTES=$((1024 * 1024 * 1024))
@@ -376,7 +357,6 @@ run_prechecks() {
     echo "  ✅ /swapfile 已配置为 1GB"
   fi
 
-  # === 3. 安装 PM2 ===
   echo ""
   echo "[3/9] 安装 PM2..."
   if ! command -v pm2 &> /dev/null; then
@@ -385,16 +365,14 @@ run_prechecks() {
   else
     echo "  ✅ PM2 已安装"
   fi
-
 }
 
 install_chainpulse() {
+  choose_mode
   run_prechecks
 
-  # === 4. 代码部署 ===
   echo ""
   echo "[4/9] 代码部署..."
-
   if [ -d "$DEPLOY_DIR/.git" ] || [ -f "$DEPLOY_DIR/config.json" ] || [ -f "$DEPLOY_DIR/.env" ]; then
     echo -e "${RED}  ❌ 检测到现有部署目录：$DEPLOY_DIR${NC}"
     echo "  请改用“更新”操作，避免覆盖已有部署。"
@@ -403,32 +381,24 @@ install_chainpulse() {
 
   git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
   cd "$DEPLOY_DIR"
-
   echo "  ✅ 代码已就绪"
 
-  # === 5. 安装依赖 ===
   echo ""
   echo "[5/9] 安装依赖..."
-  cd "$DEPLOY_DIR"
   npm install --production
   echo "  ✅ 依赖已安装"
 
   write_version_metadata
 
-  # === 6. 生成 .env 文件 ===
   echo ""
-  echo "[6/9] 生成 .env 文件..."
-  if [ ! -f .env ]; then
-    cp .env.example .env
-    echo "  ✅ .env 文件已生成（空值，启动后在配置页面填写）"
-  else
-    echo "  ✅ .env 文件已存在，保持原样"
-  fi
+  echo "[6/9] 初始化配置文件..."
+  [ -f .env ] || cp .env.example .env
+  [ -f config.json ] || echo "{}" > config.json
+  [ -f alert_history.json ] || echo "[]" > alert_history.json
+  echo "  ✅ 已初始化必要配置文件"
 
-  # === 7. PM2 配置 ===
   echo ""
   echo "[7/9] 配置 PM2..."
-
   cat > ecosystem.config.js <<EOF
 module.exports = {
   apps: [{
@@ -451,15 +421,12 @@ module.exports = {
 EOF
 
   mkdir -p logs
-
   pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
   pm2 start ecosystem.config.js --env production
   pm2 save
   pm2 startup | tail -1 | bash 2>/dev/null || true
-
   echo "  ✅ PM2 已配置并启动"
 
-  # === 8. 安全模式可选 Nginx ===
   if [ "$DEPLOY_MODE" = "secure" ]; then
     install_nginx_and_optional_reverse_proxy
   else
@@ -467,7 +434,6 @@ EOF
     echo "[8/9] 跳过 Nginx（公网模式默认不安装）"
   fi
 
-  # === 9. 输出访问说明 ===
   echo ""
   echo "[9/9] 部署结果"
   print_summary
@@ -476,10 +442,8 @@ EOF
 update_chainpulse() {
   run_prechecks
 
-  # === 4. 代码部署 ===
   echo ""
   echo "[4/9] 代码部署..."
-
   if [ ! -d "$DEPLOY_DIR/.git" ]; then
     echo -e "${RED}  ❌ 未检测到现有 Git 部署：$DEPLOY_DIR${NC}"
     echo "  请改用“安装”操作。"
@@ -487,15 +451,14 @@ update_chainpulse() {
   fi
 
   echo "  检测到现有部署，执行更新..."
+  load_existing_mode
   backup_runtime_files
   cd "$DEPLOY_DIR"
   CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
   git fetch --tags origin
   git pull --ff-only origin "$CURRENT_BRANCH"
-
   echo "  ✅ 代码已就绪"
 
-  # === 5. 安装依赖 ===
   echo ""
   echo "[5/9] 安装依赖..."
   npm install --production
@@ -503,69 +466,33 @@ update_chainpulse() {
 
   write_version_metadata
 
-  # === 6. 保留现有配置 ===
   echo ""
   echo "[6/9] 保留现有配置..."
-  if [ -f .env ]; then
-    echo "  ✅ .env 已保留"
-  else
-    cp .env.example .env
-    echo "  ✅ .env 不存在，已按模板创建"
-  fi
+  [ -f .env ] || cp .env.example .env
+  [ -f config.json ] || echo "{}" > config.json
+  [ -f alert_history.json ] || echo "[]" > alert_history.json
+  echo "  ✅ 已保留现有配置与报警历史"
 
-  if [ -f config.json ]; then
-    echo "  ✅ config.json 已保留"
-  else
-    echo -e "${YELLOW}  ⚠️ 未检测到 config.json，请在部署后补充配置${NC}"
-  fi
-
-  if [ -f alert_history.json ]; then
-    echo "  ✅ alert_history.json 已保留"
-  else
-    echo "[]" > alert_history.json
-    echo "  ✅ alert_history.json 不存在，已创建空历史文件"
-  fi
-
-  # === 7. PM2 配置 ===
   echo ""
-  echo "[7/9] 配置 PM2..."
-
-  cat > ecosystem.config.js <<EOF
-module.exports = {
-  apps: [{
-    name: '${APP_NAME}',
-    script: 'src/index.js',
-    instances: 1,
-    autorestart: true,
-    watch: false,
-    max_memory_restart: '300M',
-    env: {
-      NODE_ENV: 'production',
-      WEB_HOST: '${WEB_HOST}',
-      WEB_PORT: 3000
-    },
-    error_file: './logs/error.log',
-    out_file: './logs/out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss'
-  }]
-};
-EOF
-
+  echo "[7/9] 重启 PM2..."
   mkdir -p logs
-
-  pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
-  pm2 start ecosystem.config.js --env production
-  pm2 save
-  pm2 startup | tail -1 | bash 2>/dev/null || true
-
-  echo "  ✅ PM2 已配置并启动"
-
-  if [ "$DEPLOY_MODE" = "secure" ]; then
-    install_nginx_and_optional_reverse_proxy
+  if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
+    pm2 restart "$APP_NAME"
+    echo "  ✅ PM2 进程已重启"
   else
-    echo ""
-    echo "[8/9] 跳过 Nginx（公网模式默认不安装）"
+    if [ -f ecosystem.config.js ]; then
+      pm2 start ecosystem.config.js --env production
+      echo "  ✅ PM2 进程不存在，已按现有配置启动"
+    else
+      echo -e "${RED}  ❌ 缺少 ecosystem.config.js，无法按现有运行方式启动${NC}"
+      exit 1
+    fi
   fi
+  pm2 save
+  echo "  ✅ 已保留现有部署模式与 PM2 配置"
+
+  echo ""
+  echo "[8/9] 跳过 Nginx / 证书配置（更新沿用现有设置）"
 
   echo ""
   echo "[9/9] 部署结果"
@@ -582,22 +509,8 @@ retry_cert() {
     exit 1
   fi
 
-  echo "[Retry Cert] 域名: $domain"
-  echo "[Retry Cert] 邮箱: $email"
-
   sudo apt-get update -y
   sudo apt-get install -y certbot python3-certbot-nginx nginx
-
-  if [ ! -f "$NGINX_AVAILABLE" ]; then
-    echo -e "${YELLOW}未检测到 $NGINX_AVAILABLE，请先完成安全模式下的 Nginx 反代配置。${NC}"
-    exit 1
-  fi
-
-  if ! sudo nginx -t; then
-    echo -e "${RED}Nginx 配置校验失败，请先修复后再重试。${NC}"
-    exit 1
-  fi
-
   sudo systemctl reload nginx
   sudo certbot --nginx -d "$domain" --non-interactive --agree-tos -m "$email" --redirect
   echo -e "${GREEN}✅ 证书重试成功：$domain${NC}"
