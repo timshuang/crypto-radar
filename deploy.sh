@@ -1,305 +1,511 @@
 #!/bin/bash
-
-# deploy.sh - ChainPulse 部署脚本
-# 用法：./deploy.sh [install|update|upgrade|start|stop|restart|status|logs]
+# =============================================================================
+# ChainPulse 一键部署脚本（安装/更新 + 卸载）
+# 目标环境：Oracle Cloud Ubuntu 20.04+
+# =============================================================================
 
 set -e
 
-APP_NAME="crypto_radar"
-DISPLAY_NAME="chainpulse"
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="$APP_DIR/logs"
-CONFIG_FILE="$APP_DIR/config.json"
-ENV_FILE="$APP_DIR/.env"
-BACKUP_DIR="$APP_DIR/backup"
-VERSION_FILE="$APP_DIR/VERSION"
-VERSION_META_FILE="$APP_DIR/VERSION_META"
-INSTALL_VERSION_FILE="$APP_DIR/.chainpulse-version"
-DEFAULT_BRANCH="main"
-
-# 颜色输出
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
 NC='\033[0m'
 
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+APP_NAME="crypto_radar"
+DISPLAY_NAME="ChainPulse"
+DEPLOY_DIR="$HOME/crypto-radar"
+VERSION_FILE_NAME="VERSION"
+VERSION_META_FILE_NAME="VERSION_META"
+INSTALL_VERSION_FILE_NAME=".chainpulse-version"
+NGINX_SITE_NAME="chainpulse"
+NGINX_AVAILABLE="/etc/nginx/sites-available/${NGINX_SITE_NAME}"
+NGINX_ENABLED="/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
+
+print_header() {
+  echo "======================================"
+  echo "🦐 ${DISPLAY_NAME} 一键部署脚本"
+  echo "======================================"
+  echo ""
 }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+choose_action() {
+  echo "请选择操作："
+  echo "  1) 安装 / 更新（默认）"
+  echo "  2) 卸载（仅删除 ChainPulse 相关资源）"
+  read -r -p "请输入选项 [1/2，默认1]: " ACTION_CHOICE
+  if [ "$ACTION_CHOICE" = "2" ]; then
+    ACTION="uninstall"
+  else
+    ACTION="install"
+  fi
 }
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+choose_mode() {
+  echo "请选择部署模式："
+  echo "  1) 公网模式（默认，监听 0.0.0.0:3000）"
+  echo "  2) 安全模式（监听 127.0.0.1:3000，可选 Nginx 反代）"
+  read -r -p "请输入选项 [1/2，默认1]: " MODE_CHOICE
+
+  if [ "$MODE_CHOICE" = "2" ]; then
+    DEPLOY_MODE="secure"
+    WEB_HOST="127.0.0.1"
+    echo -e "${GREEN}已选择：安全模式${NC}"
+    echo -e "${YELLOW}提示：请确保防火墙仅开放 22/80/443，关闭公网 3000。${NC}"
+  else
+    DEPLOY_MODE="public"
+    WEB_HOST="0.0.0.0"
+    echo -e "${GREEN}已选择：公网模式${NC}"
+    echo -e "${YELLOW}提示：请确保防火墙/安全组已开放公网 3000。${NC}"
+  fi
+
+  echo ""
 }
 
-check_dependencies() {
-    log_info "检查依赖..."
+extract_domain_from_nginx() {
+  if [ -f "$NGINX_AVAILABLE" ]; then
+    # shellcheck disable=SC2002
+    DETECTED_DOMAIN=$(grep -E "^\s*server_name\s+" "$NGINX_AVAILABLE" | head -n1 | sed -E 's/^\s*server_name\s+([^;]+);/\1/' | awk '{print $1}')
+  else
+    DETECTED_DOMAIN=""
+  fi
+}
 
-    if ! command -v node &> /dev/null; then
-        log_error "Node.js 未安装"
-        exit 1
+confirm_delete() {
+  echo ""
+  echo -e "${RED}即将卸载 ${DISPLAY_NAME}（仅项目相关资源）：${NC}"
+  echo "  - PM2 进程: ${APP_NAME}"
+  echo "  - 项目目录: ${DEPLOY_DIR}"
+  echo "  - Nginx 站点: ${NGINX_AVAILABLE} / ${NGINX_ENABLED}"
+  echo ""
+  echo "不会删除："
+  echo "  - 其他 PM2 项目"
+  echo "  - PM2/Node/Nginx 软件本体"
+  echo "  - 其他 Nginx 站点"
+  echo "  - Swap、防火墙、系统配置"
+  echo ""
+  read -r -p "输入 y 确认卸载（输入 n 取消）: " CONFIRM_TEXT
+  if [[ "$CONFIRM_TEXT" =~ ^[Nn]$ ]]; then
+    echo "已取消卸载。"
+    exit 0
+  fi
+  if [[ ! "$CONFIRM_TEXT" =~ ^[Yy]$ ]]; then
+    echo "未输入 y，已取消卸载。"
+    exit 0
+  fi
+}
+
+uninstall_chainpulse() {
+  extract_domain_from_nginx
+  confirm_delete
+
+  echo ""
+  echo "[卸载] 停止并删除 PM2 进程..."
+  pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+  pm2 save >/dev/null 2>&1 || true
+  echo "  ✅ PM2 进程已处理"
+
+  echo "[卸载] 删除项目目录..."
+  if [ -d "$DEPLOY_DIR" ]; then
+    rm -rf "$DEPLOY_DIR"
+    echo "  ✅ 已删除 ${DEPLOY_DIR}"
+  else
+    echo "  ↪ 项目目录不存在，跳过"
+  fi
+
+  echo "[卸载] 删除 Nginx 站点配置..."
+  if [ -L "$NGINX_ENABLED" ] || [ -f "$NGINX_ENABLED" ]; then
+    sudo rm -f "$NGINX_ENABLED"
+  fi
+  if [ -f "$NGINX_AVAILABLE" ]; then
+    sudo rm -f "$NGINX_AVAILABLE"
+  fi
+
+  if command -v nginx >/dev/null 2>&1; then
+    if sudo nginx -t >/dev/null 2>&1; then
+      sudo systemctl reload nginx || true
     fi
+  fi
+  echo "  ✅ Nginx 站点已处理"
 
-    NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-    if [ "$NODE_VERSION" -lt 18 ]; then
-        log_error "Node.js 版本过低 (需要 18+)"
-        exit 1
+  if [ -n "$DETECTED_DOMAIN" ]; then
+    echo ""
+    read -r -p "是否删除 ${DETECTED_DOMAIN} 的证书？[y/N]: " REMOVE_CERT
+    if [[ "$REMOVE_CERT" =~ ^[Yy]$ ]]; then
+      if command -v certbot >/dev/null 2>&1; then
+        sudo certbot delete --cert-name "$DETECTED_DOMAIN" -n || true
+        echo "  ✅ 证书删除命令已执行"
+      else
+        echo "  ↪ 未安装 certbot，跳过证书删除"
+      fi
+    else
+      echo "  ↪ 已跳过证书删除"
     fi
+  fi
 
-    if ! command -v pm2 &> /dev/null; then
-        log_warn "PM2 未安装，正在安装..."
-        npm install -g pm2
-    fi
-
-    log_info "依赖检查通过"
+  echo ""
+  echo "======================================"
+  echo "✅ ${DISPLAY_NAME} 卸载完成"
+  echo "======================================"
 }
 
-setup_directories() {
-    log_info "创建目录结构..."
+install_nginx_and_optional_reverse_proxy() {
+  echo ""
+  echo "[8/9] 安装 Nginx..."
+  sudo apt-get update -y
+  sudo apt-get install -y nginx
+  sudo systemctl enable nginx
+  sudo systemctl start nginx
+  echo "  ✅ Nginx 已安装"
 
-    mkdir -p "$APP_DIR/src" "$LOG_DIR" "$BACKUP_DIR"
+  read -r -p "请输入你的域名（例如 example.com）。直接回车=跳过反代配置，仅安装 Nginx：" DOMAIN
+  if [ -z "$DOMAIN" ]; then
+    echo "  ↪ 已跳过反代配置（仅安装 Nginx）"
+    return 0
+  fi
 
-    log_info "目录创建完成"
-}
+  echo ""
+  echo "  开始配置 Nginx 反代域名：$DOMAIN"
 
-install_dependencies() {
-    log_info "安装 npm 依赖..."
+  sudo tee "$NGINX_AVAILABLE" >/dev/null <<EOF
+server {
+    listen 80;
+    server_name $DOMAIN;
 
-    cd "$APP_DIR"
-    npm install --production
-
-    log_info "依赖安装完成"
-}
-
-create_default_config() {
-    if [ ! -f "$CONFIG_FILE" ]; then
-        log_warn "配置文件不存在，创建默认配置..."
-
-        cat > "$CONFIG_FILE" << 'EOF'
-{
-  "version": "1.0.0",
-  "createdAt": "2026-03-12T10:00:00Z",
-  "updatedAt": "2026-03-12T10:00:00Z",
-  "bark": {
-    "enabled": true,
-    "serverUrl": "https://api.day.app",
-    "soundNormal": "minuet",
-    "soundCritical": "alarm",
-    "volume": 5,
-    "monitorEnabled": true,
-    "volatilityEnabled": true
-  },
-  "telegram": {
-    "enabled": true
-  },
-  "symbols": [],
-  "settings": {
-    "checkIntervalMinutes": 1,
-    "alertSilenceMinutes": 5,
-    "maxPriceRecordsPerSymbol": 720,
-    "maxSymbols": 20
-  }
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
 }
 EOF
 
-        log_info "默认配置已创建，请编辑 $CONFIG_FILE"
-    fi
+  sudo ln -sf "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+  sudo rm -f /etc/nginx/sites-enabled/default
+
+  if ! sudo nginx -t; then
+    echo -e "${RED}  ❌ Nginx 配置校验失败，已跳过反代部署。${NC}"
+    return 0
+  fi
+
+  sudo systemctl reload nginx
+  echo "  ✅ Nginx 反代（HTTP）已生效"
+
+  echo ""
+  read -r -p "请输入证书邮箱（用于 Let's Encrypt 到期提醒，直接回车跳过证书申请）：" CERT_EMAIL
+  if [ -z "$CERT_EMAIL" ]; then
+    echo "  ↪ 已跳过证书自动申请，当前为 HTTP 可访问。"
+    return 0
+  fi
+
+  echo ""
+  echo "  正在尝试自动申请 HTTPS 证书（Let's Encrypt）..."
+  sudo apt-get install -y certbot python3-certbot-nginx
+
+  set +e
+  sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$CERT_EMAIL" --redirect
+  CERTBOT_EXIT=$?
+  set -e
+
+  if [ $CERTBOT_EXIT -eq 0 ]; then
+    echo -e "${GREEN}  ✅ HTTPS 证书申请成功，已启用 443 + HTTP 自动跳转。${NC}"
+  else
+    echo -e "${RED}  ❌ 证书申请失败，已降级为 HTTP（服务仍可用）。${NC}"
+    echo "  失败日志：/var/log/letsencrypt/letsencrypt.log"
+    echo "  可重试命令："
+    echo "  sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $CERT_EMAIL --redirect"
+    echo "  若你使用 Cloudflare 代理，证书失败时可临时切换为 DNS only（灰云）后重试。"
+  fi
 }
 
-ensure_env_file() {
-    if [ ! -f "$ENV_FILE" ] && [ -f "$APP_DIR/.env.example" ]; then
-        cp "$APP_DIR/.env.example" "$ENV_FILE"
-        log_info ".env 文件已创建"
-    fi
-}
+write_version_metadata() {
+  local branch version channel display
 
-backup_runtime_files() {
-    local ts backup_path
-    ts=$(date +%Y%m%d_%H%M%S)
-    backup_path="$BACKUP_DIR/update_$ts"
-    mkdir -p "$backup_path"
+  if [ -f "$DEPLOY_DIR/$VERSION_FILE_NAME" ]; then
+    version=$(tr -d '\r\n' < "$DEPLOY_DIR/$VERSION_FILE_NAME")
+  else
+    version="v0.0.0"
+  fi
 
-    for file in "$CONFIG_FILE" "$ENV_FILE" "$APP_DIR/alert_state.json" "$APP_DIR/alert_history.json"; do
-        if [ -f "$file" ]; then
-            cp "$file" "$backup_path/"
-        fi
-    done
+  branch=$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+  if [ "$branch" = "main" ]; then
+    channel="main"
+  else
+    channel="branch"
+  fi
 
-    log_info "运行配置已备份到 $backup_path"
-}
+  display="$channel $version"
 
-resolve_git_branch() {
-    local branch
-    branch=$(git -C "$APP_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "$DEFAULT_BRANCH")
-    if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
-        branch="$DEFAULT_BRANCH"
-    fi
-    echo "$branch"
-}
-
-write_version_files() {
-    local git_branch channel version display
-
-    if [ -f "$VERSION_FILE" ]; then
-        version=$(tr -d '\r\n' < "$VERSION_FILE")
-    else
-        version="v0.0.0"
-    fi
-
-    git_branch=$(resolve_git_branch)
-    if [ "$git_branch" = "$DEFAULT_BRANCH" ]; then
-        channel="main"
-    else
-        channel="branch"
-    fi
-
-    display="$channel $version"
-
-    cat > "$VERSION_META_FILE" <<EOF
+  cat > "$DEPLOY_DIR/$VERSION_META_FILE_NAME" <<EOF
 CHANNEL=$channel
 VERSION=$version
 DISPLAY=$display
 EOF
 
-    cat > "$INSTALL_VERSION_FILE" <<EOF
+  cat > "$DEPLOY_DIR/$INSTALL_VERSION_FILE_NAME" <<EOF
 $display
 EOF
 
-    log_info "当前版本：$display"
+  echo "  ✅ 当前版本：$display"
 }
 
-git_update_code() {
-    if [ ! -d "$APP_DIR/.git" ]; then
-        log_warn "非 Git 仓库，跳过代码更新"
-        return
+backup_runtime_files() {
+  local ts backup_dir
+  ts=$(date +%Y%m%d_%H%M%S)
+  backup_dir="$DEPLOY_DIR/backup/update_$ts"
+  mkdir -p "$backup_dir"
+
+  for file in config.json .env alert_state.json alert_history.json; do
+    if [ -f "$DEPLOY_DIR/$file" ]; then
+      cp "$DEPLOY_DIR/$file" "$backup_dir/"
     fi
+  done
 
-    local current_branch
-    current_branch=$(resolve_git_branch)
-
-    log_info "拉取最新代码，当前分支：$current_branch"
-    git -C "$APP_DIR" fetch --tags origin
-    git -C "$APP_DIR" pull --ff-only origin "$current_branch"
+  echo "  ✅ 已备份运行数据到 $backup_dir"
 }
 
-cmd_install() {
-    log_info "开始安装 $DISPLAY_NAME..."
+print_summary() {
+  echo ""
+  echo "======================================"
+  echo "✅ ${DISPLAY_NAME} 部署完成！"
+  echo "======================================"
+  echo ""
 
-    check_dependencies
-    setup_directories
-    ensure_env_file
-    install_dependencies
-    create_default_config
-    write_version_files
-
-    log_info ""
-    log_info "=========================================="
-    log_info "安装完成！"
-    log_info "=========================================="
-    log_info "1. 编辑配置文件：nano $CONFIG_FILE"
-    log_info "2. 编辑环境变量：nano $ENV_FILE"
-    log_info "3. 配置 Bark / Telegram / 币种"
-    log_info "4. 运行：./deploy.sh start"
-}
-
-cmd_update() {
-    log_info "开始更新 $DISPLAY_NAME..."
-
-    check_dependencies
-    backup_runtime_files
-    git_update_code
-    ensure_env_file
-    install_dependencies
-    write_version_files
-
-    log_info ""
-    log_info "更新完成，配置与数据已保留"
-    log_info "重启应用：./deploy.sh restart"
-}
-
-cmd_start() {
-    log_info "启动 $DISPLAY_NAME..."
-
-    cd "$APP_DIR"
-
-    if [ ! -f "$CONFIG_FILE" ]; then
-        log_error "配置文件不存在，请先运行：./deploy.sh install"
-        exit 1
-    fi
-
-    write_version_files
-    pm2 start ecosystem.config.js --only "$APP_NAME" 2>/dev/null || pm2 start ecosystem.config.js
-
-    sleep 2
-    pm2 status
-
-    log_info "启动完成"
-}
-
-cmd_stop() {
-    log_info "停止 $DISPLAY_NAME..."
-    pm2 stop "$APP_NAME"
-    log_info "停止完成"
-}
-
-cmd_restart() {
-    log_info "重启 $DISPLAY_NAME..."
-
-    cd "$APP_DIR"
-    write_version_files
-    pm2 restart "$APP_NAME"
-
-    sleep 2
-    pm2 status
-
-    log_info "重启完成"
-}
-
-cmd_status() {
-    write_version_files
-    pm2 status "$APP_NAME"
+  if [ "$DEPLOY_MODE" = "public" ]; then
+    echo "📋 当前模式：公网模式"
+    echo "访问地址："
+    echo "  http://YOUR_SERVER_IP:3000"
     echo ""
-    log_info "版本文件：$INSTALL_VERSION_FILE"
-    if [ -f "$INSTALL_VERSION_FILE" ]; then
-        cat "$INSTALL_VERSION_FILE"
+    echo -e "${RED}⚠️  安全提醒：公网模式会暴露管理面板，请务必保护服务器访问权限。${NC}"
+  else
+    echo "📋 当前模式：安全模式（仅本机监听 3000）"
+    echo "本机监听："
+    echo "  http://127.0.0.1:3000"
+    echo ""
+    echo "若未配置域名反代，可使用 SSH 隧道访问："
+    echo "  ssh -L 3000:localhost:3000 -i ~/.ssh/id_rsa ubuntu@YOUR_VPS_IP"
+    echo "  浏览器打开：http://localhost:3000"
+  fi
+
+  echo ""
+  echo "在配置页面填写："
+  echo "  - Bark Key"
+  echo "  - Telegram Bot Token"
+  echo "  - Telegram Chat ID"
+  echo ""
+  echo "🔧 常用命令："
+  echo "   pm2 status          # 查看状态"
+  echo "   pm2 logs            # 查看日志"
+  echo "   pm2 restart all     # 重启服务"
+  echo "   pm2 stop all        # 停止服务"
+  echo ""
+  echo "📁 重要文件位置："
+  echo "   配置文件：$DEPLOY_DIR/config.json"
+  echo "   环境变量：$DEPLOY_DIR/.env"
+  echo "   版本文件：$DEPLOY_DIR/$INSTALL_VERSION_FILE_NAME"
+  echo "   日志文件：$DEPLOY_DIR/logs/"
+  echo ""
+  echo "======================================"
+}
+
+install_or_update() {
+  choose_mode
+
+  # === 1. 系统检测 ===
+  echo "[1/9] 系统检测..."
+
+  MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
+  echo "  内存总量：${MEM_TOTAL}MB"
+  if [ "$MEM_TOTAL" -lt 800 ]; then
+    echo "  ⚠️  警告：内存小于 800MB，可能运行不稳定"
+  fi
+
+  if ! command -v node &> /dev/null; then
+    echo "  Node.js 未安装，开始安装..."
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "  ✅ Node.js 已安装：$(node -v)"
+  else
+    echo "  ✅ Node.js 已安装：$(node -v)"
+  fi
+
+  if ! command -v git &> /dev/null; then
+    echo "  Git 未安装，开始安装..."
+    sudo apt-get install -y git
+  fi
+  echo "  ✅ Git 已安装"
+
+  # === 2. 配置 Swap（1GB） ===
+  echo ""
+  echo "[2/9] 配置 Swap（1GB）..."
+  TARGET_SWAP_BYTES=$((1024 * 1024 * 1024))
+  CURRENT_SWAP_BYTES=$(swapon --show=SIZE --bytes --noheadings 2>/dev/null | awk '{sum += $1} END {print sum + 0}')
+
+  if [ "$CURRENT_SWAP_BYTES" -ge "$TARGET_SWAP_BYTES" ]; then
+    CURRENT_SWAP_MB=$((CURRENT_SWAP_BYTES / 1024 / 1024))
+    echo "  ✅ 已检测到 Swap ${CURRENT_SWAP_MB}MB（>= 1024MB），跳过创建"
+  else
+    CURRENT_SWAP_MB=$((CURRENT_SWAP_BYTES / 1024 / 1024))
+    echo "  ⚠️ 当前 Swap 为 ${CURRENT_SWAP_MB}MB，小于 1024MB，调整 /swapfile 为 1GB"
+
+    if swapon --show=NAME --noheadings 2>/dev/null | grep -qx '/swapfile'; then
+      sudo swapoff /swapfile || true
     fi
+
+    sudo rm -f /swapfile
+    sudo fallocate -l 1G /swapfile
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+
+    if ! grep -q '^/swapfile none swap sw 0 0$' /etc/fstab; then
+      echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+    fi
+
+    echo "  ✅ /swapfile 已配置为 1GB"
+  fi
+
+  # === 3. 安装 PM2 ===
+  echo ""
+  echo "[3/9] 安装 PM2..."
+  if ! command -v pm2 &> /dev/null; then
+    sudo npm install -g pm2
+    echo "  ✅ PM2 已安装"
+  else
+    echo "  ✅ PM2 已安装"
+  fi
+
+  # === 4. 代码部署 ===
+  echo ""
+  echo "[4/9] 代码部署..."
+
+  if [ -d "$DEPLOY_DIR" ]; then
+    echo "  检测到现有部署，执行更新..."
+    backup_runtime_files
+    cd "$DEPLOY_DIR"
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    git fetch --tags origin
+    git pull --ff-only origin "$CURRENT_BRANCH"
+  else
+    echo "  首次部署，克隆代码..."
+    git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
+    cd "$DEPLOY_DIR"
+  fi
+
+  echo "  ✅ 代码已就绪"
+
+  # === 5. 安装依赖 ===
+  echo ""
+  echo "[5/9] 安装依赖..."
+  cd "$DEPLOY_DIR"
+  npm install --production
+  echo "  ✅ 依赖已安装"
+
+  write_version_metadata
+
+  # === 6. 生成 .env 文件 ===
+  echo ""
+  echo "[6/9] 生成 .env 文件..."
+  if [ ! -f .env ]; then
+    cp .env.example .env
+    echo "  ✅ .env 文件已生成（空值，启动后在配置页面填写）"
+  else
+    echo "  ✅ .env 文件已存在"
+  fi
+
+  # === 7. PM2 配置 ===
+  echo ""
+  echo "[7/9] 配置 PM2..."
+
+  cat > ecosystem.config.js <<EOF
+module.exports = {
+  apps: [{
+    name: '${APP_NAME}',
+    script: 'src/index.js',
+    instances: 1,
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '300M',
+    env: {
+      NODE_ENV: 'production',
+      WEB_HOST: '${WEB_HOST}',
+      WEB_PORT: 3000
+    },
+    error_file: './logs/error.log',
+    out_file: './logs/out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss'
+  }]
+};
+EOF
+
+  mkdir -p logs
+
+  pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+  pm2 start ecosystem.config.js --env production
+  pm2 save
+  pm2 startup | tail -1 | bash 2>/dev/null || true
+
+  echo "  ✅ PM2 已配置并启动"
+
+  # === 8. 安全模式可选 Nginx ===
+  if [ "$DEPLOY_MODE" = "secure" ]; then
+    install_nginx_and_optional_reverse_proxy
+  else
+    echo ""
+    echo "[8/9] 跳过 Nginx（公网模式默认不安装）"
+  fi
+
+  # === 9. 输出访问说明 ===
+  echo ""
+  echo "[9/9] 部署结果"
+  print_summary
 }
 
-cmd_logs() {
-    pm2 logs "$APP_NAME" --lines 50
+retry_cert() {
+  local domain="$1"
+  local email="$2"
+
+  if [ -z "$domain" ] || [ -z "$email" ]; then
+    echo "用法: ./deploy.sh --retry-cert <domain> <email>"
+    echo "示例: ./deploy.sh --retry-cert trade.5202157.xyz you@example.com"
+    exit 1
+  fi
+
+  echo "[Retry Cert] 域名: $domain"
+  echo "[Retry Cert] 邮箱: $email"
+
+  sudo apt-get update -y
+  sudo apt-get install -y certbot python3-certbot-nginx nginx
+
+  if [ ! -f "$NGINX_AVAILABLE" ]; then
+    echo -e "${YELLOW}未检测到 $NGINX_AVAILABLE，请先完成安全模式下的 Nginx 反代配置。${NC}"
+    exit 1
+  fi
+
+  if ! sudo nginx -t; then
+    echo -e "${RED}Nginx 配置校验失败，请先修复后再重试。${NC}"
+    exit 1
+  fi
+
+  sudo systemctl reload nginx
+  sudo certbot --nginx -d "$domain" --non-interactive --agree-tos -m "$email" --redirect
+  echo -e "${GREEN}✅ 证书重试成功：$domain${NC}"
 }
 
-main() {
-    case "${1:-}" in
-        install)
-            cmd_install
-            ;;
-        update|upgrade)
-            cmd_update
-            ;;
-        start)
-            cmd_start
-            ;;
-        stop)
-            cmd_stop
-            ;;
-        restart)
-            cmd_restart
-            ;;
-        status)
-            cmd_status
-            ;;
-        logs)
-            cmd_logs
-            ;;
-        *)
-            echo "用法：$0 {install|update|upgrade|start|stop|restart|status|logs}"
-            exit 1
-            ;;
-    esac
-}
+if [ "$1" = "--retry-cert" ]; then
+  retry_cert "$2" "$3"
+  exit 0
+fi
 
-main "$@"
+print_header
+choose_action
+
+if [ "$ACTION" = "uninstall" ]; then
+  uninstall_chainpulse
+else
+  install_or_update
+fi
