@@ -373,10 +373,13 @@ install_chainpulse() {
 
   echo ""
   echo "[4/9] 代码部署..."
-  if [ -d "$DEPLOY_DIR/.git" ] || [ -f "$DEPLOY_DIR/config.json" ] || [ -f "$DEPLOY_DIR/.env" ]; then
-    echo -e "${RED}  ❌ 检测到现有部署目录：$DEPLOY_DIR${NC}"
-    echo "  请改用“更新”操作，避免覆盖已有部署。"
-    exit 1
+  if [ -d "$DEPLOY_DIR/.git" ]; then
+    echo -e "${YELLOW}  ⚠️ 检测到已有安装：$DEPLOY_DIR${NC}"
+    read -r -p "是否继续安装？ [Y/n] " CONTINUE_INSTALL
+    if [[ "$CONTINUE_INSTALL" =~ ^[Nn]$ ]]; then
+      echo "已取消安装"
+      exit 0
+    fi
   fi
 
   git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
@@ -391,11 +394,7 @@ install_chainpulse() {
   write_version_metadata
 
   echo ""
-  echo "[6/9] 初始化配置文件..."
-  [ -f .env ] || cp .env.example .env
-  [ -f config.json ] || echo "{}" > config.json
-  [ -f alert_history.json ] || echo "[]" > alert_history.json
-  echo "  ✅ 已初始化必要配置文件"
+  echo "[6/9] 跳过运行期配置文件初始化（由程序自行处理）"
 
   echo ""
   echo "[7/9] 配置 PM2..."
@@ -467,11 +466,7 @@ update_chainpulse() {
   write_version_metadata
 
   echo ""
-  echo "[6/9] 保留现有配置..."
-  [ -f .env ] || cp .env.example .env
-  [ -f config.json ] || echo "{}" > config.json
-  [ -f alert_history.json ] || echo "[]" > alert_history.json
-  echo "  ✅ 已保留现有配置与报警历史"
+  echo "[6/9] 跳过运行期配置文件处理（沿用程序自身逻辑）"
 
   echo ""
   echo "[7/9] 重启 PM2..."
