@@ -291,7 +291,7 @@ class VolatilityMonitor {
    * 处理触发的波动
    */
   async handleTrigger(result) {
-    const { symbol, volatility, min, max, threshold, direction, windowMinutes, sourceType } = result;
+    const { symbol, volatility, min, max, threshold, direction, windowMinutes, sourceType, startPrice, endPrice } = result;
     const volatilityKey = `${symbol}_volatility`;
     const isTrackedSpot = ['BTC', 'ETH', 'TIA', 'BTCUSDT', 'ETHUSDT', 'TIAUSDT'].includes(String(symbol || '').toUpperCase());
     
@@ -319,7 +319,9 @@ class VolatilityMonitor {
       threshold,
       direction,
       windowMinutes,
-      sourceType
+      sourceType,
+      startPrice,
+      endPrice
     );
     
     if (sent) {

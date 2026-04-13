@@ -60,9 +60,13 @@ class Templater {
   buildVolatilityAlert(alert) {
     const sourceLabel = normalizeSourceType(alert.sourceType);
     const direction = alert.direction === 'down' ? '下跌' : '上涨';
+    const hasPriceRange = alert.startPrice != null && alert.endPrice != null;
+    const priceRangeText = hasPriceRange
+      ? `（${this.formatPrice(alert.startPrice)} → ${this.formatPrice(alert.endPrice)}）`
+      : '';
 
     const title = '波动预警';
-    const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(2)}%`;
+    const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(2)}%${priceRangeText}`;
 
     return { title, content };
   }
@@ -75,7 +79,16 @@ class Templater {
     if (typeof price !== 'number') {
       price = parseFloat(price);
     }
+
+    if (!Number.isFinite(price)) {
+      return 'N/A';
+    }
     
+    // 极小价格保留更多小数位，避免显示成 0
+    if (price > 0 && price < 0.001) {
+      return parseFloat(price.toFixed(10)).toString();
+    }
+
     // 小于 1 的价格显示更多小数位（去除末尾零）
     if (price < 1) {
       return parseFloat(price.toFixed(6)).toString();
