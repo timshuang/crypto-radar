@@ -1968,7 +1968,7 @@ async function loadBarkGlobalConfig() {
     
     // 加载监控列表 Bark 设置
     const monitorEnabled = config.bark.monitorEnabled !== false;  // 默认 true
-    const monitorMode = config.bark.monitorMode || 'normal';
+    const monitorMode = ['normal', 'critical'].includes(config.bark.monitorMode) ? config.bark.monitorMode : 'normal';
     
     // 更新开关状态
     const monitorToggle = document.getElementById('monitor-bark-toggle');
@@ -1987,7 +1987,7 @@ async function loadBarkGlobalConfig() {
     
     // 加载波动侦测 Bark 设置
     const volatilityEnabled = config.bark.volatilityEnabled === true;  // 默认 false
-    const volatilityMode = config.bark.volatilityMode || 'normal';
+    const volatilityMode = ['normal', 'critical'].includes(config.bark.volatilityMode) ? config.bark.volatilityMode : 'normal';
     
     const volatilityToggle = document.getElementById('volatility-bark-toggle');
     if (volatilityToggle) {
@@ -2045,14 +2045,6 @@ async function toggleMonitorBark() {
       updateMonitorModeVisibility(false);
       showToast('配置校验失败：' + err.message, 'error');
       return;
-    }
-  }
-  
-  // 开启时默认设置为普通模式
-  if (enabled) {
-    const normalRadio = document.querySelector('input[name="monitor-bark-mode"][value="normal"]');
-    if (normalRadio) {
-      normalRadio.checked = true;
     }
   }
   
@@ -2133,14 +2125,6 @@ async function toggleVolatilityBark() {
       updateVolatilityModeVisibility(false);
       showToast('配置校验失败：' + err.message, 'error');
       return;
-    }
-  }
-  
-  // 开启时默认设置为普通模式
-  if (enabled) {
-    const normalRadio = document.querySelector('input[name="volatility-bark-mode"][value="normal"]');
-    if (normalRadio) {
-      normalRadio.checked = true;
     }
   }
   

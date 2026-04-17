@@ -589,7 +589,13 @@ class WSConnector {
           let parsedAlphaCount = 0;
           for (const token of tokens) {
             const streamSymbol = token.s;
-            const alphaPairMatch = typeof streamSymbol === 'string' ? streamSymbol.match(/^ALPHA_(\d+)(USDT|USDC)$/i) : null;
+
+            // Alpha 全量流只保留 USDT，直接丢弃 USDC，避免同一 alphaId 混入不同计价市场的数据
+            if (typeof streamSymbol === 'string' && /USDC$/i.test(streamSymbol)) {
+              continue;
+            }
+
+            const alphaPairMatch = typeof streamSymbol === 'string' ? streamSymbol.match(/^ALPHA_(\d+)USDT$/i) : null;
             const rawSymbol = alphaPairMatch ? alphaPairMatch[1] : token.s;
             const alphaInternalKey = alphaPairMatch ? `ALPHA_${alphaPairMatch[1]}` : null;
             const resolvedSymbol = this._resolveAlphaSymbol(rawSymbol);
