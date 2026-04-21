@@ -64,9 +64,12 @@ class Templater {
     const priceRangeText = hasPriceRange
       ? `（${this.formatPrice(alert.startPrice)} → ${this.formatPrice(alert.endPrice)}）`
       : '';
+    const avgVolumeText = alert.avgQuoteVolume3mPerMinute != null
+      ? ` 近3分钟平均交易额：${this.formatVolume(alert.avgQuoteVolume3mPerMinute)} usdt`
+      : '';
 
     const title = '波动预警';
-    const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(2)}%${priceRangeText}`;
+    const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(2)}%${priceRangeText}${avgVolumeText}`;
 
     return { title, content };
   }
@@ -98,6 +101,14 @@ class Templater {
       // 整数价格不显示小数位，避免千分位逗号
       return Math.round(price).toString();
     }
+  }
+
+  formatVolume(volume) {
+    const num = Number(volume);
+    if (!Number.isFinite(num)) return 'N/A';
+    if (num >= 1000) return parseFloat(num.toFixed(0)).toString();
+    if (num >= 1) return parseFloat(num.toFixed(2)).toString();
+    return parseFloat(num.toFixed(4)).toString();
   }
 }
 

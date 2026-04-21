@@ -86,6 +86,7 @@ function formatMemory(mb) {
   return `${mb} MB`;
 }
 
+
 // 页面切换
 function showPage(pageId) {
   document.querySelectorAll('.page').forEach(page => {
@@ -1024,6 +1025,7 @@ document.querySelectorAll('.nav-links a').forEach(link => {
 let volatilityWindowValue = 5;
 let volatilityThresholdValue = 20;
 let volatilityScopeValue = 'global';
+let volatilityMinAvgVolumeValue = 50;
 
 // 初始化波动设置（只绑定事件，不设置默认值）
 function initVolatilitySettings() {
@@ -1031,6 +1033,8 @@ function initVolatilitySettings() {
   const windowInput = document.getElementById('volatilityWindowCustom');
   const thresholdSelect = document.getElementById('volatilityThreshold');
   const thresholdInput = document.getElementById('volatilityThresholdCustom');
+  const minAvgVolumeSelect = document.getElementById('volatilityMinAvgVolume');
+  const minAvgVolumeInput = document.getElementById('volatilityMinAvgVolumeCustom');
   
   // 监听下拉框变化（只更新前端值，不提交）
   windowSelect.addEventListener('change', (e) => {
@@ -1081,6 +1085,28 @@ function initVolatilitySettings() {
       volatilityThresholdValue = value;
     }
   });
+
+  minAvgVolumeSelect.addEventListener('change', (e) => {
+    if (e.target.value === 'custom') {
+      minAvgVolumeInput.disabled = false;
+      if (!minAvgVolumeInput.value) {
+        minAvgVolumeInput.value = volatilityMinAvgVolumeValue || 50;
+      }
+      minAvgVolumeInput.focus();
+      volatilityMinAvgVolumeValue = parseFloat(minAvgVolumeInput.value) || 50;
+    } else {
+      minAvgVolumeInput.disabled = true;
+      minAvgVolumeInput.value = e.target.value;
+      volatilityMinAvgVolumeValue = parseFloat(e.target.value) || 50;
+    }
+  });
+
+  minAvgVolumeInput.addEventListener('change', () => {
+    const value = parseFloat(minAvgVolumeInput.value);
+    if (value !== undefined && value !== null && value >= 1) {
+      volatilityMinAvgVolumeValue = value;
+    }
+  });
   
   // 监听范围变化（只更新前端值，不提交）
   const scopeRadios = document.querySelectorAll('input[name="volatilityScope"]');
@@ -1100,6 +1126,7 @@ async function onVolatilityToggle(checked) {
       // 开启：直接读取输入框的当前值（输入框是唯一的权威数据源）
       const windowInput = document.getElementById('volatilityWindowCustom');
       const thresholdInput = document.getElementById('volatilityThresholdCustom');
+      const minAvgVolumeInput = document.getElementById('volatilityMinAvgVolumeCustom');
       const scopeRadio = document.querySelector('input[name="volatilityScope"]:checked');
       
       // 调试日志：打印输入框的实际值
@@ -1115,6 +1142,7 @@ async function onVolatilityToggle(checked) {
       const params = {
         windowMinutes: parseInt(windowValue) || 5,
         thresholdPercent: parseFloat(thresholdValue) || 20,
+        minAvgQuoteVolume3m: parseFloat(minAvgVolumeInput.value.replace(',', '.')) || 50,
         scope: scopeRadio ? scopeRadio.value : 'global'
       };
       
@@ -1196,6 +1224,21 @@ async function loadVolatilitySettings() {
       thresholdCustomInput.disabled = false;
       // 关键：直接更新变量，不依赖 change 事件
       volatilityThresholdValue = parseFloat(thresholdCustomInput.value) || volatilityThresholdValue;
+    }
+
+    volatilityMinAvgVolumeValue = config.minAvgQuoteVolume3m || 50;
+    const minAvgVolumeSelect = document.getElementById('volatilityMinAvgVolume');
+    const minAvgVolumeCustomInput = document.getElementById('volatilityMinAvgVolumeCustom');
+    const minAvgPresetValues = ['15', '50', '100'];
+    if (minAvgPresetValues.includes(String(volatilityMinAvgVolumeValue))) {
+      minAvgVolumeSelect.value = String(volatilityMinAvgVolumeValue);
+      minAvgVolumeCustomInput.value = volatilityMinAvgVolumeValue;
+      minAvgVolumeCustomInput.disabled = true;
+    } else {
+      minAvgVolumeSelect.value = 'custom';
+      minAvgVolumeCustomInput.value = volatilityMinAvgVolumeValue;
+      minAvgVolumeCustomInput.disabled = false;
+      volatilityMinAvgVolumeValue = parseFloat(minAvgVolumeCustomInput.value) || volatilityMinAvgVolumeValue;
     }
     
     // 设置开关状态
@@ -2196,7 +2239,7 @@ async function init() {
   
   // 初始化弹窗内搜索
   initAddSymbolSearch();
-  
+
   // 初始化波动设置（绑定事件）
   initVolatilitySettings();
   

@@ -1395,6 +1395,7 @@ class WebServer extends EventEmitter {
       scope: 'global',
       windowMinutes: 5,
       thresholdPercent: 20,
+      minAvgQuoteVolume3m: 50,
       barkEnabled: false,
       barkMode: 'normal'
     };
@@ -1431,6 +1432,7 @@ class WebServer extends EventEmitter {
     console.log('[WebServer] _startVolatility - parseFloat 结果:', parseFloat(data?.thresholdPercent));
     
     config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;  // 支持小数
+    config.volatilityModule.minAvgQuoteVolume3m = parseFloat(data?.minAvgQuoteVolume3m) || 50;
     config.volatilityModule.barkEnabled = config.bark?.volatilityEnabled || false;
     config.volatilityModule.barkMode = config.bark?.volatilityMode || 'normal';
 
@@ -1445,7 +1447,7 @@ class WebServer extends EventEmitter {
     const windowMinutes = config.volatilityModule.windowMinutes || 5;
     const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
     const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
-    const runtimeSilenceMinutes = Math.round(((this.storage?.throttle?.silenceMs || (silenceMinutes * 60 * 1000)) / 60000) * 100) / 100;
+    const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 50;
     
     let rangeText;
     if (scope === 'global') {
@@ -1462,7 +1464,7 @@ class WebServer extends EventEmitter {
     const message = `🌊 波动侦测开启
 
 范围：${rangeText}
-窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟，实际静默期：${runtimeSilenceMinutes}分钟`;
+窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟 | avg. 3m：${minAvgQuoteVolume3m}U`;
     
     // 发送 TG 通知（不等待，不阻塞）
     if (this.app?.alertService) {
