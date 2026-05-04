@@ -12,26 +12,18 @@ const http = require('http');
 const fs = require('fs').promises;
 const syncFs = require('fs');
 const path = require('path');
+const packageJson = require('../package.json');
 const EventEmitter = require('events');
 const WebSocket = require('ws');
 const { fetchAlphaPrice } = require('./monitors');
 
 function readVersionInfo(baseDir) {
-  const versionPath = path.join(baseDir, 'VERSION');
   const metaPath = path.join(baseDir, 'VERSION_META');
 
-  let version = 'v0.0.0';
+  let version = packageJson.version || '0.0.0';
   let channel = 'branch';
-  let display = `${channel} ${version}`;
 
   try {
-    if (syncFs.existsSync(versionPath)) {
-      const rawVersion = syncFs.readFileSync(versionPath, 'utf8').trim();
-      if (rawVersion) {
-        version = rawVersion;
-      }
-    }
-
     if (syncFs.existsSync(metaPath)) {
       const rawMeta = syncFs.readFileSync(metaPath, 'utf8');
       const meta = Object.fromEntries(
@@ -49,21 +41,17 @@ function readVersionInfo(baseDir) {
       if (meta.CHANNEL === 'main' || meta.CHANNEL === 'branch') {
         channel = meta.CHANNEL;
       }
-      if (meta.VERSION) {
-        version = meta.VERSION;
-      }
-      if (meta.DISPLAY) {
-        display = meta.DISPLAY;
-      }
     }
   } catch (error) {
     console.error('[Version] 读取版本信息失败:', error.message);
   }
 
+  const display = `${channel} ${version}`;
+
   return {
     version,
     channel,
-    display: display || `${channel} ${version}`
+    display
   };
 }
 

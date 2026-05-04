@@ -31,6 +31,13 @@ cd crypto_radar
 ./deploy.sh install
 ```
 
+### Versioning
+
+- Use `package.json` `version` as the single release version source.
+- Bump versions with `npm version patch --no-git-tag-version`.
+- New machine deployments read `package.json.version` from the deployed branch.
+- `VERSION_META` only keeps `CHANNEL=main/branch`; it no longer stores the version number.
+
 ### 3. 配置
 
 编辑 `config.json`：
@@ -415,7 +422,7 @@ crypto_radar/
 ├── config.json.example    # 配置模板
 ├── ecosystem.config.js    # PM2 配置
 ├── deploy.sh              # 部署脚本
-├── package.json           # 依赖管理
+package.json           # package metadata and release version source
 └── README.md              # 本文档
 ```
 

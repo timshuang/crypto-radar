@@ -14,9 +14,7 @@ NC='\033[0m'
 APP_NAME="crypto_radar"
 DISPLAY_NAME="ChainPulse"
 DEPLOY_DIR="$HOME/crypto-radar"
-VERSION_FILE_NAME="VERSION"
 VERSION_META_FILE_NAME="VERSION_META"
-INSTALL_VERSION_FILE_NAME=".chainpulse-version"
 NGINX_SITE_NAME="chainpulse"
 NGINX_AVAILABLE="/etc/nginx/sites-available/${NGINX_SITE_NAME}"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
@@ -232,12 +230,12 @@ EOF
 }
 
 write_version_metadata() {
-  local branch version channel display
+  local branch version channel
 
-  if [ -f "$DEPLOY_DIR/$VERSION_FILE_NAME" ]; then
-    version=$(tr -d '\r\n' < "$DEPLOY_DIR/$VERSION_FILE_NAME")
+  if [ -f "$DEPLOY_DIR/package.json" ]; then
+    version=$(node -e "console.log(require('$DEPLOY_DIR/package.json').version || '0.0.0')" 2>/dev/null || echo "0.0.0")
   else
-    version="v0.0.0"
+    version="0.0.0"
   fi
 
   branch=$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
@@ -247,19 +245,11 @@ write_version_metadata() {
     channel="branch"
   fi
 
-  display="$channel $version"
-
   cat > "$DEPLOY_DIR/$VERSION_META_FILE_NAME" <<EOF
 CHANNEL=$channel
-VERSION=$version
-DISPLAY=$display
 EOF
 
-  cat > "$DEPLOY_DIR/$INSTALL_VERSION_FILE_NAME" <<EOF
-$display
-EOF
-
-  echo "  ✅ 当前版本：$display"
+  echo "  Current version: ${channel} ${version}"
 }
 
 backup_runtime_files() {
@@ -298,8 +288,8 @@ print_summary() {
   echo "📁 重要文件位置："
   echo "   配置文件：$DEPLOY_DIR/config.json"
   echo "   环境变量：$DEPLOY_DIR/.env"
-  echo "   版本文件：$DEPLOY_DIR/$INSTALL_VERSION_FILE_NAME"
-  echo "   Note: version label comes from the actual deployed branch, not the branch that served this script."
+  echo "   Version source: $DEPLOY_DIR/package.json"
+  echo "   Note: version label comes from package.json on the deployed branch."
   echo "   日志文件：$DEPLOY_DIR/logs/"
   echo ""
   echo "======================================"
