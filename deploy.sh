@@ -299,6 +299,7 @@ print_summary() {
   echo "   配置文件：$DEPLOY_DIR/config.json"
   echo "   环境变量：$DEPLOY_DIR/.env"
   echo "   版本文件：$DEPLOY_DIR/$INSTALL_VERSION_FILE_NAME"
+  echo "   Note: version label comes from the actual deployed branch, not the branch that served this script."
   echo "   日志文件：$DEPLOY_DIR/logs/"
   echo ""
   echo "======================================"
@@ -373,6 +374,7 @@ install_chainpulse() {
 
   echo ""
   echo "[4/9] 代码部署..."
+  echo -e "${YELLOW}  NOTICE: formal deployment installs the stable main branch and does not follow the branch that served this deploy.sh.${NC}"
   if [ -d "$DEPLOY_DIR/.git" ]; then
     echo -e "${YELLOW}  ⚠️ 检测到已有安装：$DEPLOY_DIR${NC}"
     read -r -p "是否继续安装？ [Y/n] " CONTINUE_INSTALL
@@ -384,6 +386,7 @@ install_chainpulse() {
 
   git clone https://github.com/timshuang/crypto-radar.git "$DEPLOY_DIR"
   cd "$DEPLOY_DIR"
+  echo -e "${YELLOW}  NOTICE: code source locked to stable branch main for formal deployment.${NC}"
   echo "  ✅ 代码已就绪"
 
   echo ""
