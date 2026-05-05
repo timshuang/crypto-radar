@@ -12,26 +12,18 @@ const http = require('http');
 const fs = require('fs').promises;
 const syncFs = require('fs');
 const path = require('path');
+const packageJson = require('../package.json');
 const EventEmitter = require('events');
 const WebSocket = require('ws');
 const { fetchAlphaPrice } = require('./monitors');
 
 function readVersionInfo(baseDir) {
-  const versionPath = path.join(baseDir, 'VERSION');
   const metaPath = path.join(baseDir, 'VERSION_META');
 
-  let version = 'v0.0.0';
+  let version = packageJson.version || '0.0.0';
   let channel = 'branch';
-  let display = `${channel} ${version}`;
 
   try {
-    if (syncFs.existsSync(versionPath)) {
-      const rawVersion = syncFs.readFileSync(versionPath, 'utf8').trim();
-      if (rawVersion) {
-        version = rawVersion;
-      }
-    }
-
     if (syncFs.existsSync(metaPath)) {
       const rawMeta = syncFs.readFileSync(metaPath, 'utf8');
       const meta = Object.fromEntries(
@@ -49,21 +41,17 @@ function readVersionInfo(baseDir) {
       if (meta.CHANNEL === 'main' || meta.CHANNEL === 'branch') {
         channel = meta.CHANNEL;
       }
-      if (meta.VERSION) {
-        version = meta.VERSION;
-      }
-      if (meta.DISPLAY) {
-        display = meta.DISPLAY;
-      }
     }
   } catch (error) {
     console.error('[Version] 读取版本信息失败:', error.message);
   }
 
+  const display = `${channel} ${version}`;
+
   return {
     version,
     channel,
-    display: display || `${channel} ${version}`
+    display
   };
 }
 
@@ -441,10 +429,6 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/cache/status' && method === 'GET') {
       result = this._getCacheStatus();
     }
-    // GET /api/debug/price-buffer - 查询指定币种的 buffer/window 调试信息
-    else if (pathname === '/api/debug/price-buffer' && method === 'GET') {
-      result = this._getPriceBufferDebug(query);
-    }
     // GET /api/prices - 获取所有当前价格（用于搜索显示）
     else if (pathname === '/api/prices' && method === 'GET') {
       result = this._getPrices();
@@ -731,52 +715,6 @@ class WebServer extends EventEmitter {
         loadedAt: this.cacheLoadTime,
         age: this.cacheLoadTime ? Date.now() - this.cacheLoadTime : null,
         ttl: this.CACHE_TTL
-      }
-    };
-  }
-
-  /**
-   * GET /api/debug/price-buffer - 查询指定币种的 buffer/window 调试信息
-   */
-  _getPriceBufferDebug(query = {}) {
-    const symbol = String(query.symbol || query.key || '').trim();
-    const source = String(query.source || 'spot').trim().toLowerCase();
-    const windowMinutes = Math.max(1, parseInt(query.windowMinutes || query.window || '1', 10) || 1);
-    const sampleSize = Math.max(1, Math.min(120, parseInt(query.sampleSize || query.sample || '20', 10) || 20));
-    const channel = String(query.channel || 'monitor').trim().toLowerCase() === 'volatility' ? 'volatility' : 'monitor';
-
-    if (!symbol) {
-      return {
-        success: false,
-        error: 'symbol is required'
-      };
-    }
-
-    const symbolConfig = {
-      symbol,
-      source
-    };
-
-    if (source === 'alpha' && query.alphaId) {
-      symbolConfig.alphaId = String(query.alphaId).trim();
-    }
-
-    const priceKey = this._resolvePriceKey(symbolConfig) || symbol;
-    const debug = this.storage?.getPriceBufferDebug?.(priceKey, windowMinutes, sampleSize, channel);
-
-    return {
-      success: true,
-      data: {
-        request: {
-          symbol,
-          source,
-          channel,
-          alphaId: symbolConfig.alphaId || null,
-          resolvedPriceKey: priceKey,
-          windowMinutes,
-          sampleSize
-        },
-        debug: debug || null
       }
     };
   }
@@ -1445,6 +1383,7 @@ class WebServer extends EventEmitter {
       scope: 'global',
       windowMinutes: 5,
       thresholdPercent: 20,
+      minAvgQuoteVolume3m: 50,
       barkEnabled: false,
       barkMode: 'normal'
     };
@@ -1481,6 +1420,7 @@ class WebServer extends EventEmitter {
     console.log('[WebServer] _startVolatility - parseFloat 结果:', parseFloat(data?.thresholdPercent));
     
     config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;  // 支持小数
+    config.volatilityModule.minAvgQuoteVolume3m = parseFloat(data?.minAvgQuoteVolume3m) || 50;
     config.volatilityModule.barkEnabled = config.bark?.volatilityEnabled || false;
     config.volatilityModule.barkMode = config.bark?.volatilityMode || 'normal';
 
@@ -1495,7 +1435,7 @@ class WebServer extends EventEmitter {
     const windowMinutes = config.volatilityModule.windowMinutes || 5;
     const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
     const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
-    const runtimeSilenceMinutes = Math.round(((this.storage?.throttle?.silenceMs || (silenceMinutes * 60 * 1000)) / 60000) * 100) / 100;
+    const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 50;
     
     let rangeText;
     if (scope === 'global') {
@@ -1512,7 +1452,7 @@ class WebServer extends EventEmitter {
     const message = `🌊 波动侦测开启
 
 范围：${rangeText}
-窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟，实际静默期：${runtimeSilenceMinutes}分钟`;
+窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟 | avg. 3m：${minAvgQuoteVolume3m}U`;
     
     // 发送 TG 通知（不等待，不阻塞）
     if (this.app?.alertService) {
@@ -1651,7 +1591,9 @@ class WebServer extends EventEmitter {
           volume: barkVolume,
           group: config.bark?.group || 'crypto_radar',
           monitorEnabled: config.bark?.monitorEnabled !== false,
-          volatilityEnabled: config.bark?.volatilityEnabled === true
+          monitorMode: ['normal', 'critical'].includes(config.bark?.monitorMode) ? config.bark.monitorMode : 'normal',
+          volatilityEnabled: config.bark?.volatilityEnabled === true,
+          volatilityMode: ['normal', 'critical'].includes(config.bark?.volatilityMode) ? config.bark.volatilityMode : 'normal'
         },
         telegram: {
           enabled: config.telegram?.enabled || false,
@@ -1768,7 +1710,9 @@ class WebServer extends EventEmitter {
           volume: parseInt(data.bark?.volume) || 5,
           group: data.bark?.group ?? 'crypto_radar',
           monitorEnabled: data.bark?.monitorEnabled !== false,
-          volatilityEnabled: data.bark?.volatilityEnabled === true
+          monitorMode: ['normal', 'critical'].includes(data.bark?.monitorMode) ? data.bark.monitorMode : (config.bark?.monitorMode || 'normal'),
+          volatilityEnabled: data.bark?.volatilityEnabled === true,
+          volatilityMode: ['normal', 'critical'].includes(data.bark?.volatilityMode) ? data.bark.volatilityMode : (config.bark?.volatilityMode || 'normal')
           // 不存储 deviceKey（敏感数据只在 .env）
         };
       }

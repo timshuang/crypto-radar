@@ -177,13 +177,6 @@ class TargetMonitor {
    * 处理触发的目标
    */
   async handleTrigger(symbol, target, currentPrice) {
-    const targetKey = `${symbol}_target_${target.id}`;
-    
-    // 检查静默期
-    if (!this.storage.canAlert(targetKey)) {
-      console.log(`[Target] ${symbol} 目标 ${target.id} 在静默期，跳过`);
-      return false;
-    }
     
     // 更新状态（storage）
     this.storage.updateTargetState(
@@ -210,9 +203,6 @@ class TargetMonitor {
     );
     
     if (sent) {
-      // 设置静默期
-      this.storage.setAlertSilence(targetKey);
-      
       console.log(`[Target] ${symbol} 触发报警，已自动关闭监控`);
       return true;
     }
@@ -235,6 +225,8 @@ class VolatilityMonitor {
   constructor(storage, alertService) {
     this.storage = storage;
     this.alertService = alertService;
+    this.volumeCheckThresholdPercent = 5;
+    this.avgQuoteVolumeWindowMinutes = 3;
   }
 
   _isDebugEnabled() {
@@ -244,6 +236,46 @@ class VolatilityMonitor {
     } catch (_) {
       return false;
     }
+  }
+
+  async _fetchAverageQuoteVolumePerMinute(symbol, sourceType) {
+    const normalizedSource = sourceType === 'alpha' ? 'alpha' : 'spot';
+    const symbolText = String(symbol || '').toUpperCase();
+    const requestSymbol = normalizedSource === 'alpha'
+      ? (symbolText.startsWith('ALPHA_') ? `${symbolText}USDT` : symbolText)
+      : (symbolText.endsWith('USDT') ? symbolText : `${symbolText}USDT`);
+
+    const baseUrl = normalizedSource === 'alpha'
+      ? `https://www.binance.com/bapi/defi/v1/public/alpha-trade/klines?symbol=${encodeURIComponent(requestSymbol)}&interval=3m&limit=1`
+      : `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(requestSymbol)}&interval=3m&limit=1`;
+
+    const response = await fetch(baseUrl, {
+      headers: {
+        'Accept-Encoding': 'identity',
+        'User-Agent': 'chainpulse/1.0'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    if (normalizedSource === 'alpha' && payload?.success === false) {
+      throw new Error(payload?.message || 'Alpha 3m K线请求失败');
+    }
+
+    const candle = normalizedSource === 'alpha' ? payload?.data?.[0] : payload?.[0];
+    if (!Array.isArray(candle) || candle.length < 8) {
+      throw new Error('无有效 3m K线数据');
+    }
+
+    const quoteVolume = parseFloat(candle[7]);
+    if (Number.isNaN(quoteVolume)) {
+      throw new Error('3m quoteVolume 无法解析');
+    }
+
+    return quoteVolume / this.avgQuoteVolumeWindowMinutes;
   }
 
   /**
@@ -282,6 +314,7 @@ class VolatilityMonitor {
       direction: stats.endPrice >= stats.startPrice ? 'up' : 'down',
       threshold: currentThreshold,
       baseThreshold: thresholdPercent,
+      minAvgQuoteVolume3m: config.minAvgQuoteVolume3m,
       isTriggered,
       windowMinutes
     };
@@ -303,6 +336,23 @@ class VolatilityMonitor {
       console.log(`[Volatility] ${symbol} 在静默期，跳过`);
       return false;
     }
+
+    const minAvgQuoteVolume3m = result.minAvgQuoteVolume3m ?? 0;
+    if ((threshold ?? 0) >= this.volumeCheckThresholdPercent && minAvgQuoteVolume3m > 0) {
+      try {
+        const volumeCheckSymbol = result.volumeCheckSymbol || symbol;
+        const avgQuoteVolumePerMinute = await this._fetchAverageQuoteVolumePerMinute(volumeCheckSymbol, sourceType);
+        result.avgQuoteVolume3mPerMinute = avgQuoteVolumePerMinute;
+        if (avgQuoteVolumePerMinute < minAvgQuoteVolume3m) {
+          console.log(`[Volatility] ${symbol} 3分钟平均交易额 ${avgQuoteVolumePerMinute.toFixed(2)} < ${minAvgQuoteVolume3m}，不推送`);
+          return false;
+        }
+        console.log(`[Volatility] ${symbol} 3分钟平均交易额 ${avgQuoteVolumePerMinute.toFixed(2)} >= ${minAvgQuoteVolume3m}，允许推送`);
+      } catch (err) {
+        console.warn(`[Volatility] ${symbol} 成交额校验失败，跳过推送：${err.message}`);
+        return false;
+      }
+    }
     
     // ⚠️ 关键修复：立即设置静默期（同步），防止竞态条件
     this.storage.setAlertSilence(volatilityKey);
@@ -321,7 +371,8 @@ class VolatilityMonitor {
       windowMinutes,
       sourceType,
       startPrice,
-      endPrice
+      endPrice,
+      result.avgQuoteVolume3mPerMinute
     );
     
     if (sent) {

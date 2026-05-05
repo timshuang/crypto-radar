@@ -162,6 +162,13 @@ class ConfigManager extends EventEmitter {
     if (!this.config.settings.maxPriceRecordsPerSymbol) {
       this.config.settings.maxPriceRecordsPerSymbol = 720;  // 720 条≈12 分钟
     }
+
+    if (!this.config.volatilityModule) {
+      this.config.volatilityModule = {};
+    }
+    if (this.config.volatilityModule.minAvgQuoteVolume3m === undefined) {
+      this.config.volatilityModule.minAvgQuoteVolume3m = 50;
+    }
     
     // 币种默认值
     if (Array.isArray(this.config.symbols)) {
@@ -203,6 +210,13 @@ class ConfigManager extends EventEmitter {
         checkIntervalMinutes: 1,
         alertSilenceMinutes: 5,
         maxPriceRecordsPerSymbol: 720  // 720 条≈12 分钟
+      },
+      volatilityModule: {
+        enabled: false,
+        scope: 'global',
+        windowMinutes: 5,
+        thresholdPercent: 20,
+        minAvgQuoteVolume3m: 50
       }
     };
   }

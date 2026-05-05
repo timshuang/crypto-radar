@@ -249,7 +249,7 @@ class AlertService extends EventEmitter {
       currentPrice,
       sourceType: this._getSourceType(symbol)
     };
-    const results = await this.sendExternalNotification(alert, { mode: 'critical' });
+    const results = await this.sendExternalNotification(alert);
     
     return Boolean(results?.bark?.success || results?.telegram?.success);
   }
@@ -257,7 +257,7 @@ class AlertService extends EventEmitter {
   /**
    * 发送波动告警
    */
-  async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null, windowMinutes = null, sourceType = null, startPrice = null, endPrice = null) {
+  async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null, windowMinutes = null, sourceType = null, startPrice = null, endPrice = null, avgQuoteVolume3mPerMinute = null) {
     // 使用传入的 windowMinutes，如果没有则从配置读取
     const actualWindowMinutes = windowMinutes || this.configManager?.config?.volatilityModule?.windowMinutes || 5;
     
@@ -283,7 +283,8 @@ class AlertService extends EventEmitter {
       direction,
       sourceType: actualSourceType,
       startPrice,
-      endPrice
+      endPrice,
+      avgQuoteVolume3mPerMinute
     };
     const results = await this.sendExternalNotification(alert);
     
@@ -401,6 +402,7 @@ class AlertService extends EventEmitter {
       // 优先级：options.mode > globalMode > symbolConfig.barkMode
       // 说明：全局配置优先于币种级别，避免历史默认值覆盖用户意图
       const mode = options.mode ?? globalMode ?? symbolConfig?.barkMode ?? 'normal';
+      console.log(`[Alert] Bark mode resolved: source=${alert.source}, mode=${mode}, from=${options.mode ? 'options.mode' : 'config'}`);
 
       // 发送通知
       const results = await this.notificationService.send(alert, {

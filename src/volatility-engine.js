@@ -481,12 +481,14 @@ class VolatilityEngine {
     // 获取配置参数
     const windowMinutes = volatilityModule.windowMinutes || 5;
     const thresholdPercent = volatilityModule.thresholdPercent || 20;
+    const minAvgQuoteVolume3m = volatilityModule.minAvgQuoteVolume3m || 50;
 
     // 构建波动配置
     const volatility = {
       windowMinutes,
       thresholdPercent,
       enabled: true
+      ,minAvgQuoteVolume3m
     };
 
     // 检查波动
@@ -528,6 +530,9 @@ class VolatilityEngine {
       const normalizedSymbol = update.symbol.replace(/USDT$/i, '').toUpperCase();
       volatilityResult.symbol = normalizedSymbol;
       volatilityResult.sourceType = update.source;
+      volatilityResult.volumeCheckSymbol = update.source === 'alpha'
+        ? update.key
+        : update.symbol.toUpperCase();
       
       console.log(`[Volatility] ${update.symbol} 实时触发：${volatilityResult.volatility?.toFixed(2)}%`);
 
