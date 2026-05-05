@@ -249,7 +249,7 @@ class AlertService extends EventEmitter {
       currentPrice,
       sourceType: this._getSourceType(symbol)
     };
-    const results = await this.sendExternalNotification(alert, { mode: 'critical' });
+    const results = await this.sendExternalNotification(alert);
     
     return Boolean(results?.bark?.success || results?.telegram?.success);
   }
@@ -402,6 +402,7 @@ class AlertService extends EventEmitter {
       // 优先级：options.mode > globalMode > symbolConfig.barkMode
       // 说明：全局配置优先于币种级别，避免历史默认值覆盖用户意图
       const mode = options.mode ?? globalMode ?? symbolConfig?.barkMode ?? 'normal';
+      console.log(`[Alert] Bark mode resolved: source=${alert.source}, mode=${mode}, from=${options.mode ? 'options.mode' : 'config'}`);
 
       // 发送通知
       const results = await this.notificationService.send(alert, {

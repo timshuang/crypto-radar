@@ -177,13 +177,6 @@ class TargetMonitor {
    * 处理触发的目标
    */
   async handleTrigger(symbol, target, currentPrice) {
-    const targetKey = `${symbol}_target_${target.id}`;
-    
-    // 检查静默期
-    if (!this.storage.canAlert(targetKey)) {
-      console.log(`[Target] ${symbol} 目标 ${target.id} 在静默期，跳过`);
-      return false;
-    }
     
     // 更新状态（storage）
     this.storage.updateTargetState(
@@ -210,9 +203,6 @@ class TargetMonitor {
     );
     
     if (sent) {
-      // 设置静默期
-      this.storage.setAlertSilence(targetKey);
-      
       console.log(`[Target] ${symbol} 触发报警，已自动关闭监控`);
       return true;
     }
