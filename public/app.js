@@ -3,8 +3,19 @@
  * 轻量级，无框架依赖
  */
 
-// API Token（从配置文件读取或默认）
-const API_TOKEN = 'crypto_radar_token_2024';
+const TOKEN_KEY = 'crypto_radar_token';
+
+function getStoredToken() {
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+function setStoredToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+function clearStoredToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
 
 // 自动补全相关变量
 let autocompleteTimeout = null;
@@ -17,18 +28,26 @@ let symbolToDelete = null;
 // API 请求封装
 async function api(endpoint, options = {}) {
   const url = `/api${endpoint}`;
+  const token = getStoredToken();
   
   const config = {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'X-API-Token': API_TOKEN,
+      'X-API-Token': token,
       ...options.headers
     }
   };
 
   try {
     const response = await fetch(url, config);
+    
+    if (response.status === 401) {
+      clearStoredToken();
+      showLoginPage();
+      throw new Error('登录已过期，请重新登录');
+    }
+    
     const data = await response.json();
     
     if (!response.ok) {
@@ -759,14 +778,13 @@ document.getElementById('bark-notification-form').addEventListener('submit', asy
   }
 });
 
-// 保存系统设置（确认后保存并重启；取消则不保存）
+// 保存缓存配置（确认后保存并重启；取消则不保存）
 document.getElementById('system-form').addEventListener('submit', async (e) => {
   e.preventDefault();
 
   const settings = {
     alertSilenceMinutes: parseInt(document.getElementById('silence-interval').value),
     maxPriceRecordsPerSymbol: parseInt(document.getElementById('max-records').value)
-    // maxSymbols 已移除 - 不再限制监控币种数量
   };
 
   const confirmed = await showSystemSaveConfirmModal();
@@ -780,9 +798,8 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
       method: 'PUT',
       body: JSON.stringify({ settings })
     });
-    showToast('系统设置已保存，准备重启...', 'success');
+    showToast('缓存配置已保存，准备重启...', 'success');
 
-    // 保存成功后立即重启
     try {
       await restartSystem();
     } catch (restartErr) {
@@ -790,6 +807,42 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
     }
   } catch (err) {
     showToast('保存失败：' + err.message, 'error');
+  }
+});
+
+// 保存密码设置（独立保存，不触发系统重启）
+document.getElementById('password-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const newPassword = document.getElementById('login-password-setting').value;
+  const confirmPassword = document.getElementById('login-password-confirm').value;
+
+  if (!newPassword) {
+    showToast('请输入新密码', 'error');
+    return;
+  }
+
+  if (newPassword.length < 6) {
+    showToast('密码长度不能少于 6 位', 'error');
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    showToast('两次输入的密码不一致', 'error');
+    return;
+  }
+
+  try {
+    await api('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ newPassword })
+    });
+    setStoredToken(newPassword);
+    document.getElementById('login-password-setting').value = '';
+    document.getElementById('login-password-confirm').value = '';
+    showToast('密码已更新', 'success');
+  } catch (err) {
+    showToast('密码更新失败：' + err.message, 'error');
   }
 });
 
@@ -2224,40 +2277,116 @@ async function saveVolatilityBarkMode() {
   }
 }
 
+// ==================== 登录 / 登出 ====================
+
+function showLoginPage() {
+  document.getElementById('login-section').style.display = 'flex';
+  document.getElementById('main-content').style.display = 'none';
+  document.querySelector('.navbar').style.display = 'none';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-password').focus();
+}
+
+function showMainContent() {
+  document.getElementById('login-section').style.display = 'none';
+  document.getElementById('main-content').style.display = 'block';
+  document.querySelector('.navbar').style.display = 'flex';
+}
+
+async function handleLogin() {
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  
+  if (!password) {
+    errorEl.textContent = '请输入密码';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      setStoredToken(data.token);
+      errorEl.style.display = 'none';
+      showMainContent();
+      initApp();
+    } else {
+      errorEl.textContent = data.error || '密码错误';
+      errorEl.style.display = 'block';
+    }
+  } catch (err) {
+    errorEl.textContent = '登录失败：' + err.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+function handleLogout() {
+  clearStoredToken();
+  showLoginPage();
+}
+
+async function checkAuth() {
+  const token = getStoredToken();
+  if (!token) {
+    showLoginPage();
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/auth/verify', {
+      headers: { 'X-API-Token': token }
+    });
+
+    if (response.ok) {
+      showMainContent();
+      initApp();
+    } else {
+      clearStoredToken();
+      showLoginPage();
+    }
+  } catch (err) {
+    clearStoredToken();
+    showLoginPage();
+  }
+}
+
 // ==================== 初始化 ====================
 
-// 初始化
-async function init() {
+let appInitialized = false;
+
+function initApp() {
+  if (appInitialized) return;
+  appInitialized = true;
+
   showPage('dashboard');
   loadDashboard();
   
-  // 初始化系统开关（仪表盘）
   initSystemToggle();
-  
-  // 初始化自动补全
   initAutocomplete();
-  
-  // 初始化弹窗内搜索
   initAddSymbolSearch();
-
-  // 初始化波动设置（绑定事件）
   initVolatilitySettings();
-  
-  // 加载波动侦测设置（从服务器，包含开关事件绑定）
   loadVolatilitySettings();
-  
-  // 加载 Bark 全局配置
   loadBarkGlobalConfig();
   
-  // 定时刷新仪表盘（每 10 秒）
   setInterval(loadDashboard, 10000);
-  
-  // 连接 WebSocket
   connectWebSocket();
-  
-  // 请求通知权限
   requestNotificationPermission();
 }
 
 // 启动
-init();
+document.addEventListener('DOMContentLoaded', () => {
+  const loginInput = document.getElementById('login-password');
+  if (loginInput) {
+    loginInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleLogin();
+    });
+  }
+});
+checkAuth();

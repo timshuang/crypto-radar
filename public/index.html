@@ -8,6 +8,22 @@
   <link rel="stylesheet" href="/style.css?v=202604212358">
 </head>
 <body>
+  <!-- 登录页 -->
+  <div id="login-section" class="login-section" style="display: none;">
+    <div class="login-card">
+      <div class="login-logo">
+        <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wCEAAQEBAQEBAUFBQUHBwYHBwoJCAgJCg8KCwoLCg8WDhAODhAOFhQYExITGBQjHBgYHCMpIiAiKTEsLDE+Oz5RUW0BBAQEBAQEBQUFBQcHBgcHCgkICAkKDwoLCgsKDxYOEA4OEA4WFBgTEhMYFCMcGBgcIykiICIpMSwsMT47PlFRbf/CABEIAHYAzwMBEQACEQEDEQH/xAAvAAEAAgMBAQEBAAAAAAAAAAAACAkEBgcCBQEDAQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAACeJ4AAABFcwSWwAAAAAAMsxzwAAAfyKUjZS40AAAAAAGWY54AAAI9lSp9wvRP0AAAAAAyzHPAAABWMRLPwvDNrAAAAAAMsxzwAAD4xSGSBIylwB24AAAAAAyzHPAAAIilaZcSU3FnhLIGvGwgAAAAyzBITHAzrJOo+qCo4yi2Yo2JrE9DiRUKXFHXQADnhAs1Yl0SxK/iCJJQ4CSQLPjQylIs7JXFQJ0Ms7K2iGxL8svBin8TDKbD+h0Ij4W3Fch2YszIXldBv58g+cXeH1Css5kW7FIhkGvl3Ro5T2Yp+HguHOzFMZIY0A5IWHEKjQiSAO5ksgQWIRlmJVKWyFXBPA48cVJ4GEVzEsjuZW8WIkhiqA5ubcWoHcAACMBVgSKObl1BXORgNULESaoIhlcx8okwWmmQYxpptplgAA5QU0AnSWCnKymU2Mu0PrgGAfNNhMsxzwAAAAfMKJjyXNnUwVXnZCdgAABlmOeAAAAAUmGylxp+gAAAAGWY54AAAABB46WSWAAAAABln/8QAJxAAAQQCAgIBBAMBAAAAAAAABQEDBAYCBwAIMDMQERMVIBIXGBT/2gAIAQEAAQgAc9mfh3/2EkaumxAQLQfY2bssy9XLB5oXuXjnsz8D7zcZlx53Ztvcvd6OH10AVbD7ip8hzzQvcvHPZn4Ozd1WnarJNscrJRAdkClVRUVEVPLC9y8c9mfg7fXJDt+iAWERVRVTlDLKepFZKr5YXuXjnsz/AHsJqJXARMxLsRuXZTpIzMoutll6A2JbHedciKktNVTJfLC9y8c9mf79wLqgOiQ62xEivTpceKxF162J0rJpTHOnZPCVrKZB+Ut1VUx+FTxQvcvJkiPDwfkSNidwxYyU9ApeXbLcCv8A3eUbuXJSQzGuYQ4JsguKVEfHZW5pcdqlFZ6wU1bbtYc86qfVFTlxE4gbafE4dJyqfwton47B3x6gayJzoeMqThKSXjo6+psPXQoo7+uxtn1XWAb8ictPcHYBSTmgIV2o28OfRx7UvaCtX2UwHOQvcvO4O0pbUxugC4UKYSlsQ4cDqRtqaOxluWeqn6aYfDnequ0ZdYuLFUm82dbWaPRDp7N992S+6+91FpS17Xr52RzsaKUVuOz4p07K5xNlzIHx3JuKk7gJrDHOoN8/CXOVVZXw/OhRsv4P/lxXCNlAi4EufK2XsEtsq2Tjk/X+rbnsyY7Hrtw6x7Rp4p0o5hnm3njnh1d2c/sWl5skt5EJBPcF6fkdOAo0jsEpOlc7oBRrtPAmso0mTCksyY39v7V4a2DerJCWCZqwCVabGJCRQgmIBDjxUTncgQsTYowlzrqTyGbiq2fJ81gbBlTZF2sb9utpo6+MpBstTj1rjCScwIVgFIVPssK41cQfh7u2D/W+viZZmcUJE5b8yb913iuuKn0XnX0OND6iqyQVRMkVF3UIHAtqWuAO6PTpOF/ssFO11Nk1rbBImmt9hGdZ2mKfFj+3ep5QtJUveW7Ju3S0ZGddUA1su0Rq8J/xZfOf4svnNKdZGtbnUsZz47riUzG1QvyjE0DXSuEV7S3NK1qyVEZ5pnV8CDo9qulLPX51VsJQHO6b3xJYorTJXbPYK2e+JXImraK/se7iq7h/i/W..." alt="ChainPulse" class="logo-icon" style="width: 48px; height: 48px; border-radius: 10px;">
+      </div>
+      <h1 class="login-title">ChainPulse</h1>
+      <p class="login-subtitle">Web3 双轨行情雷达</p>
+      <div class="login-form">
+        <input type="password" id="login-password" class="login-input" placeholder="请输入密码" autocomplete="current-password">
+        <div id="login-error" class="login-error" style="display: none;"></div>
+        <button type="button" class="login-btn" onclick="handleLogin()">登录</button>
+      </div>
+    </div>
+  </div>
+
   <div class="container">
     <!-- 顶部导航 -->
     <nav class="navbar">
@@ -17,6 +33,7 @@
         <a href="#" data-page="monitor">行情监控</a>
         <a href="#" data-page="alerts">报警历史</a>
         <a href="#" data-page="settings">设置</a>
+        <a href="#" onclick="handleLogout(); return false;" class="nav-logout">登出</a>
       </div>
     </nav>
 
@@ -331,21 +348,40 @@
           </div>
         </div>
 
-        <!-- 系统参数设置 -->
-        <div class="card">
-          <h2>⚙️ 系统参数</h2>
-          <form id="system-form" class="settings-form">
-            <div class="form-group">
-              <label>静默期（分钟）</label>
-              <input type="number" id="silence-interval" min="1" value="5">
-            </div>
-            <div class="form-group">
-              <label>最大价格记录数</label>
-              <input type="number" id="max-records" min="100" value="720">
-              <p class="hint">内存中每个币种保留的价格记录数量（默认720条≈12分钟）</p>
-            </div>
-            <button type="submit" class="btn btn-primary">保存配置</button>
-          </form>
+        <div class="settings-bottom-grid">
+          <div class="card">
+            <h2>💾 缓存配置</h2>
+            <form id="system-form" class="settings-form">
+              <div class="form-group">
+                <label>静默期（分钟）</label>
+                <input type="number" id="silence-interval" min="1" value="5">
+              </div>
+              <div class="form-group">
+                <label>最大价格记录数</label>
+                <input type="number" id="max-records" min="100" value="720">
+                <p class="hint">内存中每个币种保留的价格记录数量（默认720条≈12分钟）</p>
+              </div>
+              <button type="submit" class="btn btn-primary">保存配置</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>🔑 密码设置</h2>
+            <form id="password-form" class="settings-form">
+              <div class="form-group">
+                <label>新密码</label>
+                <input type="password" id="login-password-setting" placeholder="输入新密码" autocomplete="new-password">
+              </div>
+              <div class="form-group">
+                <label>确认密码</label>
+                <input type="password" id="login-password-confirm" placeholder="再次输入新密码" autocomplete="new-password">
+              </div>
+              <button type="submit" class="btn btn-primary">保存密码</button>
+            </form>
+          </div>
+
+          <div class="card">
+          </div>
         </div>
 
 

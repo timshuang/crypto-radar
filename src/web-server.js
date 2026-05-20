@@ -90,6 +90,7 @@ class WebServer extends EventEmitter {
     this.server = null;
     this.startTime = null;
     this.notificationService = null;
+    this.loginAttempts = new Map();
     // 代币列表缓存（5 分钟）
     this.symbolCache = null;
     this.cacheLoadTime = null;
@@ -379,14 +380,19 @@ class WebServer extends EventEmitter {
     try {
       // API 路由
       if (pathname.startsWith('/api/')) {
-        // API Token 验证（除了 status 和 cache/status 端点）
-        if (pathname !== '/api/status' && pathname !== '/api/cache/status') {
-          const token = req.headers['x-api-token'];
-          if (!token || token !== this.apiToken) {
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Unauthorized' }));
-            return;
-          }
+        // 登录端点不需要 token
+        if (pathname === '/api/auth/login' && method === 'POST') {
+          const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
+          await this._handleLogin(req, res, clientIp);
+          return;
+        }
+
+        // 其他所有 API 端点需要 token 验证
+        const token = req.headers['x-api-token'];
+        if (!token || token !== this.apiToken) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
         }
 
         await this._handleApi(req, res, pathname, query);
@@ -398,6 +404,50 @@ class WebServer extends EventEmitter {
       console.error(`[WebServer] 请求处理错误：${err.message}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  /**
+   * 处理登录请求
+   */
+  async _handleLogin(req, res, clientIp) {
+    const now = Date.now();
+    const attempt = this.loginAttempts.get(clientIp) || { count: 0, lockedUntil: 0 };
+
+    if (attempt.lockedUntil > now) {
+      const remainingSec = Math.ceil((attempt.lockedUntil - now) / 1000);
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `登录尝试过多，请 ${remainingSec} 秒后再试` }));
+      return;
+    }
+
+    let body = '';
+    body = await new Promise((resolve) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+    });
+    const parsed = parseBody(body);
+
+    if (!parsed || !parsed.password) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '请输入密码' }));
+      return;
+    }
+
+    if (parsed.password === this.apiToken) {
+      this.loginAttempts.delete(clientIp);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, token: this.apiToken }));
+    } else {
+      attempt.count++;
+      if (attempt.count >= 5) {
+        attempt.lockedUntil = now + 5 * 60 * 1000;
+        attempt.count = 0;
+      }
+      this.loginAttempts.set(clientIp, attempt);
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '密码错误' }));
     }
   }
 
@@ -421,8 +471,16 @@ class WebServer extends EventEmitter {
     // 路由处理
     let result;
 
+    // GET /api/auth/verify - 验证当前 token
+    if (pathname === '/api/auth/verify' && method === 'GET') {
+      result = { success: true };
+    }
+    // POST /api/auth/change-password - 修改密码
+    else if (pathname === '/api/auth/change-password' && method === 'POST') {
+      result = await this._changePassword(body);
+    }
     // GET /api/status - 系统状态
-    if (pathname === '/api/status' && method === 'GET') {
+    else if (pathname === '/api/status' && method === 'GET') {
       result = this._getStatus();
     }
     // GET /api/cache/status - 缓存状态
@@ -1523,6 +1581,29 @@ class WebServer extends EventEmitter {
       message: enabled ? '波动侦测已开启' : '波动侦测已关闭',
       data: { enabled }
     };
+  }
+
+  /**
+   * POST /api/auth/change-password - 修改密码
+   */
+  async _changePassword(data) {
+    if (!data || !data.newPassword || data.newPassword.length < 6) {
+      return { success: false, error: '密码长度不能少于 6 位' };
+    }
+
+    try {
+      this.apiToken = data.newPassword;
+      process.env.API_TOKEN = data.newPassword;
+
+      await this._saveEnvFile({ API_TOKEN: data.newPassword });
+      require('dotenv').config({ override: true });
+
+      console.log('[WebServer] 登录密码已更新');
+      return { success: true, message: '密码已更新，下次登录时生效' };
+    } catch (err) {
+      console.error('[WebServer] 更新密码失败:', err.message);
+      return { success: false, error: '密码更新失败: ' + err.message };
+    }
   }
 
   /**
