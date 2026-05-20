@@ -641,6 +641,14 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/notification/config/bark/volatility/mode' && method === 'PUT') {
       result = await this._saveBarkVolatilityMode(body);
     }
+    // GET /api/config/export - 导出完整配置
+    else if (pathname === '/api/config/export' && method === 'GET') {
+      result = await this._exportConfig();
+    }
+    // POST /api/config/import - 导入完整配置
+    else if (pathname === '/api/config/import' && method === 'POST') {
+      result = await this._importConfig(body);
+    }
     else {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Not Found' }));
@@ -947,12 +955,7 @@ class WebServer extends EventEmitter {
       enabled: data.enabled !== false,
       source: source,
       alphaId: alphaId, // Alpha 代币专用字段
-      targets: [],
-      volatility: {
-        enabled: true,
-        windowMinutes: 5,
-        thresholdPercent: 20
-      }
+      targets: []
     };
 
     config.symbols.push(newSymbol);
@@ -993,9 +996,6 @@ class WebServer extends EventEmitter {
       }
     }
     if (data.source) symbolConfig.source = data.source;
-    if (data.volatility) {
-      symbolConfig.volatility = { ...symbolConfig.volatility, ...data.volatility };
-    }
 
     await this.configManager.save();
 
@@ -1311,8 +1311,7 @@ class WebServer extends EventEmitter {
       }
       volatility.push({
         symbol: s.symbol,
-        enabled: s.enabled,
-        volatility: s.volatility
+        enabled: s.enabled
       });
     });
 
@@ -1333,13 +1332,9 @@ class WebServer extends EventEmitter {
       return { success: false, error: '币种不存在' };
     }
 
-    if (data.volatility) {
-      symbolConfig.volatility = { ...symbolConfig.volatility, ...data.volatility };
-    }
-
     await this.configManager.save();
 
-    return { success: true, data: symbolConfig.volatility };
+    return { success: true, data: symbolConfig };
   }
 
   /**
@@ -1373,22 +1368,6 @@ class WebServer extends EventEmitter {
     }
     if (data.thresholdPercent !== undefined) {
       config.volatilityThresholdPercent = parseFloat(data.thresholdPercent);
-    }
-
-    // 更新所有币种的波动配置（用于 added 模式）
-    if (config.symbols && Array.isArray(config.symbols)) {
-      for (const symbol of config.symbols) {
-        if (!symbol.volatility) {
-          symbol.volatility = {};
-        }
-        
-        if (data.windowMinutes !== undefined) {
-          symbol.volatility.windowMinutes = parseInt(data.windowMinutes);
-        }
-        if (data.thresholdPercent !== undefined) {
-          symbol.volatility.thresholdPercent = parseFloat(data.thresholdPercent);
-        }
-      }
     }
 
     await this.configManager.save();
@@ -1597,10 +1576,9 @@ class WebServer extends EventEmitter {
 
     try {
       this.apiToken = data.newPassword;
-      process.env.API_TOKEN = data.newPassword;
 
-      await this._saveEnvFile({ API_TOKEN: data.newPassword });
-      require('dotenv').config({ override: true });
+      this.configManager.config.apiToken = data.newPassword;
+      await this.configManager.save();
 
       console.log('[WebServer] 登录密码已更新');
       return { success: true, message: '密码已更新，下次登录时生效' };
@@ -1880,18 +1858,6 @@ class WebServer extends EventEmitter {
         symbolConfig.barkMode = data.barkMode;
       }
 
-      if (data.volatility) {
-        if (!symbolConfig.volatility) {
-          symbolConfig.volatility = {};
-        }
-        if (data.volatility.barkEnabled !== undefined) {
-          symbolConfig.volatility.barkEnabled = data.volatility.barkEnabled;
-        }
-        if (data.volatility.barkMode !== undefined) {
-          symbolConfig.volatility.barkMode = data.volatility.barkMode;
-        }
-      }
-
       await this.configManager.save();
 
       return {
@@ -2091,6 +2057,174 @@ class WebServer extends EventEmitter {
         error: 'TEST_FAILED',
         message: err.message
       };
+    }
+  }
+
+  /**
+   * GET /api/config/export - 导出完整配置
+   */
+  async _exportConfig() {
+    try {
+      const config = this.configManager?.config;
+      if (!config) {
+        return { success: false, error: '配置未加载' };
+      }
+
+      const exportData = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        config: {
+          settingsPage: {
+            bark: {
+              deviceKey: process.env.BARK_KEY || '',
+              soundNormal: process.env.BARK_SOUND_NORMAL || config.bark?.soundNormal || 'minuet',
+              soundCritical: process.env.BARK_SOUND_CRITICAL || config.bark?.soundCritical || 'alarm',
+              volume: parseInt(process.env.BARK_VOLUME) || config.bark?.volume || 5
+            },
+            telegram: {
+              enabled: config.telegram?.enabled || false,
+              botToken: process.env.TG_BOT_TOKEN || '',
+              chatId: process.env.TG_CHAT_ID || ''
+            },
+            cache: {
+              alertSilenceMinutes: config.settings?.alertSilenceMinutes || 5,
+              maxPriceRecordsPerSymbol: config.settings?.maxPriceRecordsPerSymbol || 720
+            }
+          },
+          marketPage: {
+            priceMonitor: {
+              bark: {
+                enabled: config.bark?.monitorEnabled !== false,
+                mode: config.bark?.monitorMode || 'normal'
+              },
+              symbols: config.symbols || []
+            },
+            volatility: {
+              bark: {
+                enabled: config.bark?.volatilityEnabled === true,
+                mode: config.bark?.volatilityMode || 'normal'
+              },
+              params: {
+                enabled: config.volatilityModule?.enabled || false,
+                scope: config.volatilityModule?.scope || 'global',
+                windowMinutes: config.volatilityModule?.windowMinutes || 5,
+                thresholdPercent: config.volatilityModule?.thresholdPercent || 20,
+                minAvgQuoteVolume3m: config.volatilityModule?.minAvgQuoteVolume3m || 50
+              }
+            }
+          }
+        }
+      };
+
+      return exportData;
+    } catch (err) {
+      return { success: false, error: '导出失败: ' + err.message };
+    }
+  }
+
+  /**
+   * POST /api/config/import - 导入完整配置（完全覆盖）
+   */
+  async _importConfig(data) {
+    try {
+      if (!data || !data.config) {
+        return { success: false, error: '无效的配置文件格式' };
+      }
+
+      if (!data.version) {
+        return { success: false, error: '缺少版本号' };
+      }
+
+      const config = this.configManager?.config;
+      if (!config) {
+        return { success: false, error: '配置管理器未加载' };
+      }
+
+      const imported = data.config;
+      const sp = imported.settingsPage || {};
+      const mp = imported.marketPage || {};
+      const pm = mp.priceMonitor || {};
+      const vol = mp.volatility || {};
+
+      // === settingsPage: 更新 config.json ===
+      if (sp.telegram) {
+        config.telegram = { enabled: sp.telegram.enabled || false };
+      }
+      if (sp.cache) {
+        config.settings = {
+          ...config.settings,
+          alertSilenceMinutes: sp.cache.alertSilenceMinutes || 5,
+          maxPriceRecordsPerSymbol: sp.cache.maxPriceRecordsPerSymbol || 720
+        };
+      }
+
+      // === marketPage.priceMonitor: 更新 config.json ===
+      if (pm.bark || pm.symbols) {
+        config.bark = { ...config.bark };
+      }
+      if (pm.bark) {
+        config.bark.monitorEnabled = pm.bark.enabled !== false;
+        config.bark.monitorMode = pm.bark.mode || 'normal';
+      }
+      if (pm.symbols) {
+        config.symbols = pm.symbols;
+      }
+
+      // === marketPage.volatility: 更新 config.json ===
+      if (vol.bark || vol.params) {
+        config.bark = { ...config.bark };
+      }
+      if (vol.bark) {
+        config.bark.volatilityEnabled = vol.bark.enabled === true;
+        config.bark.volatilityMode = vol.bark.mode || 'normal';
+      }
+      if (vol.params) {
+        config.volatilityModule = {
+          enabled: vol.params.enabled || false,
+          scope: vol.params.scope || 'global',
+          windowMinutes: vol.params.windowMinutes || 5,
+          thresholdPercent: vol.params.thresholdPercent || 20,
+          minAvgQuoteVolume3m: vol.params.minAvgQuoteVolume3m || 50
+        };
+      }
+
+      // 保存 config.json
+      await this.configManager.save();
+
+      // === 更新 .env 敏感字段（settingsPage.bark + settingsPage.telegram）===
+      const envUpdates = {};
+      if (sp.bark?.deviceKey !== undefined) {
+        envUpdates.BARK_KEY = sp.bark.deviceKey;
+      }
+      if (sp.bark?.soundNormal !== undefined) {
+        envUpdates.BARK_SOUND_NORMAL = sp.bark.soundNormal;
+      }
+      if (sp.bark?.soundCritical !== undefined) {
+        envUpdates.BARK_SOUND_CRITICAL = sp.bark.soundCritical;
+      }
+      if (sp.bark?.volume !== undefined) {
+        envUpdates.BARK_VOLUME = sp.bark.volume.toString();
+      }
+      if (sp.telegram?.botToken !== undefined) {
+        envUpdates.TG_BOT_TOKEN = sp.telegram.botToken;
+      }
+      if (sp.telegram?.chatId !== undefined) {
+        envUpdates.TG_CHAT_ID = sp.telegram.chatId;
+      }
+
+      if (Object.keys(envUpdates).length > 0) {
+        await this._saveEnvFile(envUpdates);
+        require('dotenv').config({ override: true });
+      }
+
+      console.log('[WebServer] 配置已导入并覆盖');
+
+      return {
+        success: true,
+        message: '配置已导入，系统将重启以生效'
+      };
+    } catch (err) {
+      return { success: false, error: '导入失败: ' + err.message };
     }
   }
 }

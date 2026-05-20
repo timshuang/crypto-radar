@@ -287,13 +287,13 @@ print_summary() {
   echo ""
   echo "📁 重要文件位置："
   echo "   配置文件：$DEPLOY_DIR/config.json"
-  echo "   环境变量：$DEPLOY_DIR/.env（含登录密码 API_TOKEN）"
+  echo "   配置文件：$DEPLOY_DIR/config.json（含登录密码 apiToken）"
   echo "   Version source: $DEPLOY_DIR/package.json"
   echo "   Note: version label comes from package.json on the deployed branch."
   echo "   日志文件：$DEPLOY_DIR/logs/"
   echo ""
-  echo "🔐 首次访问将要求输入登录密码（API_TOKEN）"
-  echo "   查看密码：grep '^API_TOKEN=' $DEPLOY_DIR/.env"
+  echo "🔐 首次访问将要求输入登录密码（apiToken）"
+  echo "   查看密码：grep '\"apiToken\"' $DEPLOY_DIR/config.json"
   echo "   修改密码：登录后在"设置"页面修改"
   echo ""
   echo "======================================"
@@ -393,26 +393,33 @@ install_chainpulse() {
   echo ""
   echo "[6/9] 初始化配置文件..."
 
-  # 生成 API Token（如果 .env 中不存在）
-  if [ -f "$DEPLOY_DIR/.env" ] && grep -q '^API_TOKEN=.\+' "$DEPLOY_DIR/.env" 2>/dev/null; then
+  # 生成 API Token（如果 config.json 中不存在）
+  CONFIG_FILE="$DEPLOY_DIR/config.json"
+  if [ -f "$CONFIG_FILE" ] && grep -q '"apiToken"' "$CONFIG_FILE" 2>/dev/null; then
     echo "  ✅ 检测到已有 API Token，保持不变"
   else
     GENERATED_TOKEN=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p | head -c 32)
 
-    # 确保 .env 文件存在
-    if [ ! -f "$DEPLOY_DIR/.env" ]; then
-      if [ -f "$DEPLOY_DIR/.env.example" ]; then
-        cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env"
+    # 更新或追加 apiToken 到 config.json
+    if [ -f "$CONFIG_FILE" ]; then
+      if grep -q '"apiToken"' "$CONFIG_FILE" 2>/dev/null; then
+        sed -i "s/\"apiToken\".*/\"apiToken\": \"$GENERATED_TOKEN\",/" "$CONFIG_FILE"
       else
-        touch "$DEPLOY_DIR/.env"
+        # 在 version 字段后插入 apiToken
+        sed -i "0,/{/s|{|\{\n  \"apiToken\": \"$GENERATED_TOKEN\",|" "$CONFIG_FILE"
       fi
-    fi
-
-    # 更新或追加 API_TOKEN
-    if grep -q '^API_TOKEN=' "$DEPLOY_DIR/.env" 2>/dev/null; then
-      sed -i "s/^API_TOKEN=.*/API_TOKEN=$GENERATED_TOKEN/" "$DEPLOY_DIR/.env"
     else
-      echo "API_TOKEN=$GENERATED_TOKEN" >> "$DEPLOY_DIR/.env"
+      cat > "$CONFIG_FILE" <<CONFEOF
+{
+  "version": "1.0.0",
+  "apiToken": "$GENERATED_TOKEN",
+  "bark": {},
+  "telegram": {},
+  "symbols": [],
+  "settings": {},
+  "volatilityModule": {}
+}
+CONFEOF
     fi
 
     echo ""

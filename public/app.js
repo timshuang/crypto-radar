@@ -446,7 +446,7 @@ async function updateSymbol() {
       method: 'PUT',
       headers: { 
         'Content-Type': 'application/json',
-        'X-API-Token': API_TOKEN
+        'X-API-Token': getStoredToken()
       },
       body: JSON.stringify({
         symbol,
@@ -837,14 +837,114 @@ document.getElementById('password-form').addEventListener('submit', async (e) =>
       method: 'POST',
       body: JSON.stringify({ newPassword })
     });
-    setStoredToken(newPassword);
+    clearStoredToken();
     document.getElementById('login-password-setting').value = '';
     document.getElementById('login-password-confirm').value = '';
-    showToast('密码已更新', 'success');
+    showToast('密码已更新，请重新登录', 'success');
+    setTimeout(() => {
+      showLoginPage();
+    }, 1500);
   } catch (err) {
     showToast('密码更新失败：' + err.message, 'error');
   }
 });
+
+// ==================== 配置导入导出 ====================
+
+let importConfirmResolver = null;
+
+function showImportConfirmModal() {
+  return new Promise((resolve) => {
+    importConfirmResolver = resolve;
+    const modal = document.getElementById('importConfirmModal');
+    if (modal) {
+      modal.classList.add('active');
+    } else {
+      resolve(window.confirm('导入将完全覆盖当前所有配置。确认导入？'));
+    }
+  });
+}
+
+function closeImportConfirmModal(result = false) {
+  const modal = document.getElementById('importConfirmModal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+  if (importConfirmResolver) {
+    const resolver = importConfirmResolver;
+    importConfirmResolver = null;
+    resolver(result);
+  }
+}
+
+async function exportConfig() {
+  try {
+    const data = await api('/config/export');
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const filename = `chainpulse-config-${dateStr}.json.bak`;
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('配置已导出', 'success');
+  } catch (err) {
+    showToast('导出失败：' + err.message, 'error');
+  }
+}
+
+async function importConfig(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const ext = file.name.toLowerCase();
+  if (!ext.endsWith('.json') && !ext.endsWith('.json.bak')) {
+    showToast('仅支持 .json 或 .json.bak 文件', 'error');
+    event.target.value = '';
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (!data.config || (!data.config.settingsPage && !data.config.marketPage)) {
+      showToast('无效的配置文件：缺少 config 字段', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    const confirmed = await showImportConfirmModal();
+    if (!confirmed) {
+      event.target.value = '';
+      return;
+    }
+
+    const result = await api('/config/import', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+
+    showToast('配置已导入，系统重启中...', 'success');
+    event.target.value = '';
+
+    setTimeout(() => {
+      location.reload();
+    }, 2000);
+  } catch (err) {
+    showToast('导入失败：' + err.message, 'error');
+    event.target.value = '';
+  }
+}
 
 // ==================== 系统开关功能 ====================
 
@@ -914,7 +1014,7 @@ async function restartSystem() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Token': API_TOKEN
+        'X-API-Token': getStoredToken()
       },
       body: JSON.stringify({ reason: 'manual-restart-from-dashboard' })
     });
@@ -948,7 +1048,7 @@ async function toggleSystem(enabled) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Token': API_TOKEN
+        'X-API-Token': getStoredToken()
       },
       body: JSON.stringify({ enabled })
     });

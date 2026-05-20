@@ -122,6 +122,11 @@ class ConfigManager extends EventEmitter {
    * 应用默认值
    */
   applyDefaults() {
+    // API Token 默认值
+    if (!this.config.apiToken) {
+      this.config.apiToken = 'crypto_radar_token_2024';
+    }
+
     // Bark 默认配置（非敏感字段）
     if (this.config.bark) {
       if (!this.config.bark.serverUrl) {
@@ -140,7 +145,7 @@ class ConfigManager extends EventEmitter {
         this.config.bark.monitorEnabled = true;
       }
       if (this.config.bark.volatilityEnabled === undefined) {
-        this.config.bark.volatilityEnabled = true;
+        this.config.bark.volatilityEnabled = false;
       }
     }
     
@@ -191,6 +196,7 @@ class ConfigManager extends EventEmitter {
       version: '1.0.0',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      apiToken: 'crypto_radar_token_2024',
       bark: {
         enabled: true,
         serverUrl: 'https://api.day.app',
@@ -198,7 +204,7 @@ class ConfigManager extends EventEmitter {
         soundCritical: 'alarm',
         volume: 5,
         monitorEnabled: true,
-        volatilityEnabled: true
+        volatilityEnabled: false
         // 敏感数据 deviceKey 已移除，只在 .env 中存储
       },
       telegram: {

@@ -426,6 +426,7 @@ h2 {
 
 .form-group input[type="text"],
 .form-group input[type="number"],
+.form-group input[type="password"],
 .form-group select {
   width: 100%;
   padding: 10px;
@@ -2027,6 +2028,65 @@ input:checked + .toggle-slider:before {
 
 .settings-bottom-grid .card {
   margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#system-form,
+#password-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+#system-form .form-actions,
+#password-form .form-actions {
+  margin-top: auto;
+}
+
+#system-form .form-actions .btn,
+#password-form .form-actions .btn {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+#password-form input[type="password"] {
+  width: 50%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.config-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+.config-desc {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin: 0 0 10px 0;
+}
+
+.config-divider {
+  height: 1px;
+  background: #334155;
+}
+
+.config-export,
+.config-import {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-export .btn,
+.config-import .btn {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  align-self: flex-start;
 }
 
 @media (max-width: 600px) {
