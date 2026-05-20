@@ -441,13 +441,17 @@ class WebServer extends EventEmitter {
       res.end(JSON.stringify({ success: true, token: this.apiToken }));
     } else {
       attempt.count++;
+      let errorMsg;
       if (attempt.count >= 5) {
         attempt.lockedUntil = now + 5 * 60 * 1000;
         attempt.count = 0;
+        errorMsg = '密码错误次数达到5次，已锁定5分钟';
+      } else {
+        errorMsg = `密码错误，您还有 ${5 - attempt.count} 次尝试机会`;
       }
       this.loginAttempts.set(clientIp, attempt);
       res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '密码错误' }));
+      res.end(JSON.stringify({ error: errorMsg }));
     }
   }
 
