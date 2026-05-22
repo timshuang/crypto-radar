@@ -1321,7 +1321,20 @@ class WebServer extends EventEmitter {
     config.volatilityModule.highVolumeEnabled = data?.highVolumeEnabled === true;
     config.volatilityModule.highVolumeThreshold = parseFloat(data?.highVolumeThreshold) || 5000;
 
+    // 后端校验：大额阈值必须 ≥ minAvg
+    const minAvg = config.volatilityModule.minAvgQuoteVolume3m || 100;
+    let validationError = null;
+    if (config.volatilityModule.highVolumeEnabled && config.volatilityModule.highVolumeThreshold < minAvg) {
+      validationError = '大额阈值不能小于 avg. 3m 过滤值，波动侦测已关闭';
+      config.volatilityModule.enabled = false;
+      config.volatilityModule.highVolumeEnabled = false;
+    }
+
     await this.configManager.save();
+
+    if (validationError) {
+      return { success: false, error: validationError };
+    }
 
     console.log(`[WebServer] 波动侦测已开启：scope=${config.volatilityModule.scope}, window=${config.volatilityModule.windowMinutes}min, threshold=${config.volatilityModule.thresholdPercent}%`);
 
@@ -1331,6 +1344,8 @@ class WebServer extends EventEmitter {
     const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
     const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
     const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 100;
+    const highVolumeEnabled = config.volatilityModule.highVolumeEnabled === true;
+    const highVolumeThreshold = config.volatilityModule.highVolumeThreshold || 5000;
     
     let rangeText;
     if (scope === 'global') {
@@ -1347,7 +1362,8 @@ class WebServer extends EventEmitter {
     const message = `🌊 波动侦测开启
 
 范围：${rangeText}
-窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟 | avg. 3m：${minAvgQuoteVolume3m}U`;
+窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟 | avg. 3m：${minAvgQuoteVolume3m}U
+是否开启大额交易提醒：${highVolumeEnabled ? `是（≥ ${highVolumeThreshold}U）` : '否'}`;
     
     // 发送 TG 通知（不等待，不阻塞）
     if (this.app?.alertService) {

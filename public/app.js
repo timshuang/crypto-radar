@@ -1143,6 +1143,24 @@ function closeModal(modalId) {
   }
 }
 
+// 波动侦测错误弹窗
+function showVolatilityErrorModal(message) {
+  const modal = document.getElementById('volatilityErrorModal');
+  const textEl = document.getElementById('volatilityErrorText');
+  if (modal && textEl) {
+    textEl.textContent = message;
+    modal.classList.add('active');
+  } else {
+    // 兜底
+    showToast(message, 'error');
+  }
+}
+
+function closeVolatilityErrorModal() {
+  const modal = document.getElementById('volatilityErrorModal');
+  if (modal) modal.classList.remove('active');
+}
+
 // 点击模态框外部关闭
 window.onclick = (event) => {
   if (event.target.classList.contains('modal')) {
@@ -1249,11 +1267,8 @@ function initVolatilitySettings() {
       }
       minAvgVolumeInput.focus();
       volatilityMinAvgVolumeValue = parseFloat(minAvgVolumeInput.value) || 50;
-    } else {
-      minAvgVolumeInput.disabled = true;
-      minAvgVolumeInput.value = e.target.value;
-      volatilityMinAvgVolumeValue = parseFloat(e.target.value) || 50;
     }
+    validateHighVolumeThreshold();
   });
 
   minAvgVolumeInput.addEventListener('change', () => {
@@ -1274,12 +1289,20 @@ function initVolatilitySettings() {
   // 大额阈值输入框监听
   const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
   if (highVolumeThresholdInput) {
+    highVolumeThresholdInput.addEventListener('input', validateHighVolumeThreshold);
     highVolumeThresholdInput.addEventListener('change', () => {
       const value = parseFloat(highVolumeThresholdInput.value);
       if (value !== undefined && value !== null && value >= 1) {
         volatilityHighVolumeThresholdValue = value;
       }
+      validateHighVolumeThreshold();
     });
+  }
+
+  // minAvg 变化时也校验
+  const minAvgInput = document.getElementById('volatilityMinAvgVolumeCustom');
+  if (minAvgInput) {
+    minAvgInput.addEventListener('input', validateHighVolumeThreshold);
   }
 }
 
@@ -1330,7 +1353,7 @@ async function onVolatilityToggle(checked) {
       } else {
         toggle.checked = false;
         if (statusLabel) statusLabel.textContent = '(已关闭)';
-        showToast(response.message || '开启失败', 'error');
+        showVolatilityErrorModal(response.error || response.message || '开启失败，请检查大额阈值设置');
       }
     } else {
       // 关闭：删除参数，前端保持当前值
@@ -1433,6 +1456,7 @@ async function loadVolatilitySettings() {
       highVolumeThresholdInput.value = volatilityHighVolumeThresholdValue;
       highVolumeThresholdInput.disabled = !volatilityHighVolumeEnabled;
     }
+    validateHighVolumeThreshold();
     
     // 设置开关状态
     const toggle = document.getElementById('volatilityToggle');
@@ -1466,6 +1490,27 @@ function toggleHighVolumeAlert(checked) {
   const thresholdInput = document.getElementById('volatilityHighVolumeThreshold');
   if (thresholdInput) {
     thresholdInput.disabled = !checked;
+  }
+  validateHighVolumeThreshold();
+}
+
+function validateHighVolumeThreshold() {
+  const thresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+  const minAvgInput = document.getElementById('volatilityMinAvgVolumeCustom');
+  const warningDiv = document.querySelector('.tier-warning');
+  if (!thresholdInput || !minAvgInput || !warningDiv) return;
+
+  const highVol = parseFloat(thresholdInput.value) || 0;
+  const minAvg = parseFloat(minAvgInput.value) || 0;
+
+  if (highVol > 0 && minAvg > 0 && highVol < minAvg) {
+    warningDiv.textContent = '大额平均交易额必须 ≥ avg. 3m 过滤值';
+    warningDiv.style.color = '#ff4757';
+    warningDiv.style.display = 'block';
+  } else {
+    warningDiv.textContent = '⚠ 需大于或等于基础过滤条件';
+    warningDiv.style.color = '#f0ad4e';
+    warningDiv.style.display = 'block';
   }
 }
 
