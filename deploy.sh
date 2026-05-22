@@ -287,10 +287,14 @@ print_summary() {
   echo ""
   echo "📁 重要文件位置："
   echo "   配置文件：$DEPLOY_DIR/config.json"
-  echo "   环境变量：$DEPLOY_DIR/.env"
+  echo "   配置文件：$DEPLOY_DIR/config.json（含登录密码 apiToken）"
   echo "   Version source: $DEPLOY_DIR/package.json"
   echo "   Note: version label comes from package.json on the deployed branch."
   echo "   日志文件：$DEPLOY_DIR/logs/"
+  echo ""
+  echo "🔐 首次访问将要求输入登录密码（apiToken）"
+  echo "   查看密码：grep '\"apiToken\"' $DEPLOY_DIR/config.json"
+  echo "   修改密码：登录后在"设置"页面修改"
   echo ""
   echo "======================================"
 }
@@ -387,7 +391,43 @@ install_chainpulse() {
   write_version_metadata
 
   echo ""
-  echo "[6/9] 跳过运行期配置文件初始化（由程序自行处理）"
+  echo "[6/9] 初始化配置文件..."
+
+  # 生成 API Token（如果 config.json 中不存在）
+  CONFIG_FILE="$DEPLOY_DIR/config.json"
+  if [ -f "$CONFIG_FILE" ] && grep -q '"apiToken"' "$CONFIG_FILE" 2>/dev/null; then
+    echo "  ✅ 检测到已有 API Token，保持不变"
+  else
+    GENERATED_TOKEN=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p | head -c 32)
+
+    # 更新或追加 apiToken 到 config.json
+    if [ -f "$CONFIG_FILE" ]; then
+      if grep -q '"apiToken"' "$CONFIG_FILE" 2>/dev/null; then
+        sed -i "s/\"apiToken\".*/\"apiToken\": \"$GENERATED_TOKEN\",/" "$CONFIG_FILE"
+      else
+        # 在 version 字段后插入 apiToken
+        sed -i "0,/{/s|{|\{\n  \"apiToken\": \"$GENERATED_TOKEN\",|" "$CONFIG_FILE"
+      fi
+    else
+      cat > "$CONFIG_FILE" <<CONFEOF
+{
+  "version": "1.0.0",
+  "apiToken": "$GENERATED_TOKEN",
+  "bark": {},
+  "telegram": {},
+  "symbols": [],
+  "settings": {},
+  "volatilityModule": {}
+}
+CONFEOF
+    fi
+
+    echo ""
+    echo -e "${GREEN}  ✅ 已生成登录密码（API Token）${NC}"
+    echo -e "${YELLOW}  ⚠️  请妥善保存以下密码，用于 Web 登录：${NC}"
+    echo -e "${GREEN}  $GENERATED_TOKEN${NC}"
+    echo ""
+  fi"
 
   echo ""
   echo "[7/9] 配置 PM2..."

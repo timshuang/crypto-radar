@@ -141,7 +141,7 @@ async function init() {
     app.webServer = new WebServer({
       port: process.env.WEB_PORT || 3000,
       host: process.env.WEB_HOST || '127.0.0.1',
-      apiToken: process.env.API_TOKEN || 'crypto_radar_token_2024'
+      apiToken: app.configManager.config.apiToken || 'crypto_radar_token_2024'
     });
     app.webServer.bind(app.configManager, app.storage, app, app.notificationService);
     
@@ -267,10 +267,6 @@ async function start() {
     
     // 2. 初始化波动监控状态（波动侦测独立于价格监控，初始化所有币种）
     console.log('[Start] 初始化波动监控...');
-    const configSymbols = app.configManager.config.symbols || [];
-    configSymbols.forEach(s => {
-      app.volatilityMonitor.init(s.symbol, s.volatility);
-    });
     
     // 2b. 启动波动侦测引擎（如果启用）
     if (volatilityConfig.enabled) {
@@ -484,11 +480,6 @@ async function handleConfigChange(newConfig) {
     }
   }
   
-  // 为所有币种初始化波动监控
-  newSymbols.forEach(s => {
-    app.volatilityMonitor?.init(s.symbol, s.volatility);
-  });
-
   // 刷新实时波动侦测范围（added 模式）
   app.volatilityEngine?.refreshMonitoredSymbols();
   

@@ -3,8 +3,19 @@
  * 轻量级，无框架依赖
  */
 
-// API Token（从配置文件读取或默认）
-const API_TOKEN = 'crypto_radar_token_2024';
+const TOKEN_KEY = 'crypto_radar_token';
+
+function getStoredToken() {
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+function setStoredToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+function clearStoredToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
 
 // 自动补全相关变量
 let autocompleteTimeout = null;
@@ -17,18 +28,26 @@ let symbolToDelete = null;
 // API 请求封装
 async function api(endpoint, options = {}) {
   const url = `/api${endpoint}`;
+  const token = getStoredToken();
   
   const config = {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'X-API-Token': API_TOKEN,
+      'X-API-Token': token,
       ...options.headers
     }
   };
 
   try {
     const response = await fetch(url, config);
+    
+    if (response.status === 401) {
+      clearStoredToken();
+      showLoginPage();
+      throw new Error('登录已过期，请重新登录');
+    }
+    
     const data = await response.json();
     
     if (!response.ok) {
@@ -427,7 +446,7 @@ async function updateSymbol() {
       method: 'PUT',
       headers: { 
         'Content-Type': 'application/json',
-        'X-API-Token': API_TOKEN
+        'X-API-Token': getStoredToken()
       },
       body: JSON.stringify({
         symbol,
@@ -759,14 +778,13 @@ document.getElementById('bark-notification-form').addEventListener('submit', asy
   }
 });
 
-// 保存系统设置（确认后保存并重启；取消则不保存）
+// 保存缓存配置（确认后保存并重启；取消则不保存）
 document.getElementById('system-form').addEventListener('submit', async (e) => {
   e.preventDefault();
 
   const settings = {
     alertSilenceMinutes: parseInt(document.getElementById('silence-interval').value),
     maxPriceRecordsPerSymbol: parseInt(document.getElementById('max-records').value)
-    // maxSymbols 已移除 - 不再限制监控币种数量
   };
 
   const confirmed = await showSystemSaveConfirmModal();
@@ -780,9 +798,8 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
       method: 'PUT',
       body: JSON.stringify({ settings })
     });
-    showToast('系统设置已保存，准备重启...', 'success');
+    showToast('缓存配置已保存，准备重启...', 'success');
 
-    // 保存成功后立即重启
     try {
       await restartSystem();
     } catch (restartErr) {
@@ -792,6 +809,142 @@ document.getElementById('system-form').addEventListener('submit', async (e) => {
     showToast('保存失败：' + err.message, 'error');
   }
 });
+
+// 保存密码设置（独立保存，不触发系统重启）
+document.getElementById('password-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const newPassword = document.getElementById('login-password-setting').value;
+  const confirmPassword = document.getElementById('login-password-confirm').value;
+
+  if (!newPassword) {
+    showToast('请输入新密码', 'error');
+    return;
+  }
+
+  if (newPassword.length < 6) {
+    showToast('密码长度不能少于 6 位', 'error');
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    showToast('两次输入的密码不一致', 'error');
+    return;
+  }
+
+  try {
+    await api('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ newPassword })
+    });
+    clearStoredToken();
+    document.getElementById('login-password-setting').value = '';
+    document.getElementById('login-password-confirm').value = '';
+    showToast('密码已更新，请重新登录', 'success');
+    setTimeout(() => {
+      showLoginPage();
+    }, 1500);
+  } catch (err) {
+    showToast('密码更新失败：' + err.message, 'error');
+  }
+});
+
+// ==================== 配置导入导出 ====================
+
+let importConfirmResolver = null;
+
+function showImportConfirmModal() {
+  return new Promise((resolve) => {
+    importConfirmResolver = resolve;
+    const modal = document.getElementById('importConfirmModal');
+    if (modal) {
+      modal.classList.add('active');
+    } else {
+      resolve(window.confirm('导入将完全覆盖当前所有配置。确认导入？'));
+    }
+  });
+}
+
+function closeImportConfirmModal(result = false) {
+  const modal = document.getElementById('importConfirmModal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+  if (importConfirmResolver) {
+    const resolver = importConfirmResolver;
+    importConfirmResolver = null;
+    resolver(result);
+  }
+}
+
+async function exportConfig() {
+  try {
+    const data = await api('/config/export');
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const filename = `chainpulse-config-${dateStr}.json.bak`;
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('配置已导出', 'success');
+  } catch (err) {
+    showToast('导出失败：' + err.message, 'error');
+  }
+}
+
+async function importConfig(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const ext = file.name.toLowerCase();
+  if (!ext.endsWith('.json') && !ext.endsWith('.json.bak')) {
+    showToast('仅支持 .json 或 .json.bak 文件', 'error');
+    event.target.value = '';
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (!data.config || (!data.config.settingsPage && !data.config.marketPage)) {
+      showToast('无效的配置文件：缺少 config 字段', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    const confirmed = await showImportConfirmModal();
+    if (!confirmed) {
+      event.target.value = '';
+      return;
+    }
+
+    const result = await api('/config/import', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+
+    showToast('配置已导入，系统重启中...', 'success');
+    event.target.value = '';
+
+    setTimeout(() => {
+      location.reload();
+    }, 2000);
+  } catch (err) {
+    showToast('导入失败：' + err.message, 'error');
+    event.target.value = '';
+  }
+}
 
 // ==================== 系统开关功能 ====================
 
@@ -861,7 +1014,7 @@ async function restartSystem() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Token': API_TOKEN
+        'X-API-Token': getStoredToken()
       },
       body: JSON.stringify({ reason: 'manual-restart-from-dashboard' })
     });
@@ -895,7 +1048,7 @@ async function toggleSystem(enabled) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Token': API_TOKEN
+        'X-API-Token': getStoredToken()
       },
       body: JSON.stringify({ enabled })
     });
@@ -932,13 +1085,13 @@ async function toggleSystem(enabled) {
 // 加载系统状态（仪表盘）
 async function loadSystemStatus() {
   try {
-    const response = await fetch('/api/status');
-    const data = await response.json();
+    const result = await api('/status');
+    const data = result.data;
 
     const status = document.getElementById('toggleStatus');
     if (status) {
-      const isEnabled = data.data?.systemEnabled !== false && data.data?.running !== false;
-      const versionDisplay = data.data?.versionDisplay ? `（当前版本：${data.data.versionDisplay}）` : '';
+      const isEnabled = data?.systemEnabled !== false && data?.running !== false;
+      const versionDisplay = data?.versionDisplay ? `（当前版本：${data.versionDisplay}）` : '';
       status.textContent = isEnabled
         ? `系统运行中${versionDisplay}`
         : '系统当前未运行';
@@ -1025,7 +1178,9 @@ document.querySelectorAll('.nav-links a').forEach(link => {
 let volatilityWindowValue = 5;
 let volatilityThresholdValue = 20;
 let volatilityScopeValue = 'global';
-let volatilityMinAvgVolumeValue = 50;
+let volatilityMinAvgVolumeValue = 100;
+let volatilityHighVolumeEnabled = false;
+let volatilityHighVolumeThresholdValue = 5000;
 
 // 初始化波动设置（只绑定事件，不设置默认值）
 function initVolatilitySettings() {
@@ -1115,11 +1270,23 @@ function initVolatilitySettings() {
       volatilityScopeValue = radio.value;
     });
   });
+
+  // 大额阈值输入框监听
+  const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+  if (highVolumeThresholdInput) {
+    highVolumeThresholdInput.addEventListener('change', () => {
+      const value = parseFloat(highVolumeThresholdInput.value);
+      if (value !== undefined && value !== null && value >= 1) {
+        volatilityHighVolumeThresholdValue = value;
+      }
+    });
+  }
 }
 
 // 切换波动侦测开关（新版：互斥开关，只在开启时提交参数）
 async function onVolatilityToggle(checked) {
   const toggle = document.getElementById('volatilityToggle');
+  const statusLabel = document.getElementById('volatility-status-label');
   
   try {
     if (checked) {
@@ -1128,6 +1295,8 @@ async function onVolatilityToggle(checked) {
       const thresholdInput = document.getElementById('volatilityThresholdCustom');
       const minAvgVolumeInput = document.getElementById('volatilityMinAvgVolumeCustom');
       const scopeRadio = document.querySelector('input[name="volatilityScope"]:checked');
+      const highVolumeToggle = document.getElementById('volatilityHighVolumeToggle');
+      const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
       
       // 调试日志：打印输入框的实际值
       console.log('[Volatility] 提交参数 - windowInput.value:', windowInput.value, 'thresholdInput.value:', thresholdInput.value);
@@ -1142,8 +1311,10 @@ async function onVolatilityToggle(checked) {
       const params = {
         windowMinutes: parseInt(windowValue) || 5,
         thresholdPercent: parseFloat(thresholdValue) || 20,
-        minAvgQuoteVolume3m: parseFloat(minAvgVolumeInput.value.replace(',', '.')) || 50,
-        scope: scopeRadio ? scopeRadio.value : 'global'
+        minAvgQuoteVolume3m: parseFloat(minAvgVolumeInput.value.replace(',', '.')) || 100,
+        scope: scopeRadio ? scopeRadio.value : 'global',
+        highVolumeEnabled: highVolumeToggle ? highVolumeToggle.checked : false,
+        highVolumeThreshold: highVolumeThresholdInput ? parseFloat(highVolumeThresholdInput.value.replace(',', '.')) || 5000 : 5000
       };
       
       console.log('[Volatility] 最终提交的 params:', params);
@@ -1155,8 +1326,10 @@ async function onVolatilityToggle(checked) {
       
       if (response.success) {
         showToast('波动侦测已开启', 'success');
+        if (statusLabel) statusLabel.textContent = '(已开启)';
       } else {
         toggle.checked = false;
+        if (statusLabel) statusLabel.textContent = '(已关闭)';
         showToast(response.message || '开启失败', 'error');
       }
     } else {
@@ -1168,15 +1341,18 @@ async function onVolatilityToggle(checked) {
       
       if (response.success) {
         showToast('波动侦测已关闭', 'success');
+        if (statusLabel) statusLabel.textContent = '(已关闭)';
         // 前端保持当前值，不重置
       } else {
         toggle.checked = true;
+        if (statusLabel) statusLabel.textContent = '(已开启)';
         showToast(response.message || '关闭失败', 'error');
       }
     }
   } catch (err) {
     console.error('切换波动侦测失败:', err);
     toggle.checked = !checked;
+    if (statusLabel) statusLabel.textContent = checked ? '(已开启)' : '(已关闭)';
     showToast('操作失败：' + err.message, 'error');
   }
 }
@@ -1226,7 +1402,7 @@ async function loadVolatilitySettings() {
       volatilityThresholdValue = parseFloat(thresholdCustomInput.value) || volatilityThresholdValue;
     }
 
-    volatilityMinAvgVolumeValue = config.minAvgQuoteVolume3m || 50;
+    volatilityMinAvgVolumeValue = config.minAvgQuoteVolume3m || 100;
     const minAvgVolumeSelect = document.getElementById('volatilityMinAvgVolume');
     const minAvgVolumeCustomInput = document.getElementById('volatilityMinAvgVolumeCustom');
     const minAvgPresetValues = ['15', '50', '100'];
@@ -1240,6 +1416,23 @@ async function loadVolatilitySettings() {
       minAvgVolumeCustomInput.disabled = false;
       volatilityMinAvgVolumeValue = parseFloat(minAvgVolumeCustomInput.value) || volatilityMinAvgVolumeValue;
     }
+
+    // 设置大额强提醒
+    volatilityHighVolumeEnabled = config.highVolumeEnabled === true;
+    const highVolumeToggle = document.getElementById('volatilityHighVolumeToggle');
+    if (highVolumeToggle) {
+      highVolumeToggle.checked = volatilityHighVolumeEnabled;
+    }
+
+    // 联动 Bark 模式可见性
+    updateBarkModeVisibility(volatilityHighVolumeEnabled);
+
+    volatilityHighVolumeThresholdValue = config.highVolumeThreshold || 5000;
+    const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+    if (highVolumeThresholdInput) {
+      highVolumeThresholdInput.value = volatilityHighVolumeThresholdValue;
+      highVolumeThresholdInput.disabled = !volatilityHighVolumeEnabled;
+    }
     
     // 设置开关状态
     const toggle = document.getElementById('volatilityToggle');
@@ -1248,6 +1441,11 @@ async function loadVolatilitySettings() {
       // 绑定新的事件处理
       toggle.removeEventListener('change', toggleVolatility);
       toggle.addEventListener('change', (e) => onVolatilityToggle(e.target.checked));
+      // 更新状态文字
+      const statusLabel = document.getElementById('volatility-status-label');
+      if (statusLabel) {
+        statusLabel.textContent = config.enabled === true ? '(已开启)' : '(已关闭)';
+      }
     }
   } catch (err) {
     console.error('加载波动设置失败:', err);
@@ -1255,6 +1453,29 @@ async function loadVolatilitySettings() {
     volatilityWindowValue = 5;
     volatilityThresholdValue = 20;
     volatilityScopeValue = 'global';
+    volatilityHighVolumeEnabled = false;
+    volatilityHighVolumeThresholdValue = 5000;
+  }
+}
+
+// 切换大额强提醒开关（仅更新前端状态，不立即提交）
+function toggleHighVolumeAlert(checked) {
+  volatilityHighVolumeEnabled = checked;
+  updateBarkModeVisibility(checked);
+  // 阈值输入框联动
+  const thresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+  if (thresholdInput) {
+    thresholdInput.disabled = !checked;
+  }
+}
+
+// 更新 Bark 模式选项可见性
+function updateBarkModeVisibility(enabled) {
+  const barkOptions = document.getElementById('bark-mode-options');
+  if (barkOptions) {
+    const radios = barkOptions.querySelectorAll('input[type="radio"]');
+    radios.forEach(r => r.disabled = !enabled);
+    barkOptions.classList.toggle('disabled', !enabled);
   }
 }
 
@@ -1990,18 +2211,11 @@ function updateMonitorModeVisibility(isVisible) {
 }
 
 /**
- * 更新波动侦测模式选择可见性
+ * 更新波动侦测模式选择可见性（保留兼容，模式始终在区块2内可见）
  * @param {boolean} isVisible - 是否显示模式选择
  */
 function updateVolatilityModeVisibility(isVisible) {
-  const container = document.getElementById('volatility-bark-mode-container');
-  if (container) {
-    if (isVisible) {
-      container.classList.add('visible');
-    } else {
-      container.classList.remove('visible');
-    }
-  }
+  // 模式选择器现在在大额区块内，始终可见，无需操作
 }
 
 async function loadBarkGlobalConfig() {
@@ -2028,17 +2242,8 @@ async function loadBarkGlobalConfig() {
       monitorModeRadio.checked = true;
     }
     
-    // 加载波动侦测 Bark 设置
-    const volatilityEnabled = config.bark.volatilityEnabled === true;  // 默认 false
+    // 加载波动侦测 Bark 模式（大额区块内）
     const volatilityMode = ['normal', 'critical'].includes(config.bark.volatilityMode) ? config.bark.volatilityMode : 'normal';
-    
-    const volatilityToggle = document.getElementById('volatility-bark-toggle');
-    if (volatilityToggle) {
-      volatilityToggle.checked = volatilityEnabled;
-    }
-    
-    updateVolatilityModeVisibility(volatilityEnabled);
-    
     const volatilityModeRadio = document.querySelector(`input[name="volatility-bark-mode"][value="${volatilityMode}"]`);
     if (volatilityModeRadio) {
       volatilityModeRadio.checked = true;
@@ -2145,60 +2350,6 @@ async function saveMonitorBarkMode() {
 }
 
 // 切换波动侦测 Bark 通知
-async function toggleVolatilityBark() {
-  const checkbox = document.getElementById('volatility-bark-toggle');
-  const enabled = checkbox.checked;
-  
-  // 如果尝试开启，先校验配置
-  if (enabled) {
-    try {
-      const config = await api('/notification/config');
-      const bark = config.data?.bark || {};
-      const validationError = validateBarkConfigBeforeEnable(bark);
-      
-      if (validationError) {
-        showToast(validationError, 'error');
-        checkbox.checked = false;
-        updateVolatilityModeVisibility(false);
-        return;
-      }
-    } catch (err) {
-      console.error('[toggleVolatilityBark] 配置校验失败:', err);
-      checkbox.checked = false;
-      updateVolatilityModeVisibility(false);
-      showToast('配置校验失败：' + err.message, 'error');
-      return;
-    }
-  }
-  
-  // 1. 立即更新 UI（不等待 API）
-  updateVolatilityModeVisibility(enabled);
-  
-  // 2. 异步保存配置（不阻塞 UI）
-  api('/notification/config/bark/volatility', {
-    method: 'PUT',
-    body: JSON.stringify({})
-  }).then((response) => {
-    // 3. API 返回后显示提示
-    if (response.success) {
-      showToast(
-        enabled ? '已启用波动侦测 Bark 通知' : '已禁用波动侦测 Bark 通知',
-        'success'
-      );
-    } else {
-      // 失败时回滚 UI
-      checkbox.checked = !enabled;
-      updateVolatilityModeVisibility(!enabled);
-      showToast(response.message, 'error');
-    }
-  }).catch(err => {
-    // 4. 如果失败，回滚 UI
-    checkbox.checked = !enabled;
-    updateVolatilityModeVisibility(!enabled);
-    showToast('操作失败：' + err.message, 'error');
-  });
-}
-
 // 保存波动侦测 Bark 模式
 async function saveVolatilityBarkMode() {
   const mode = document.querySelector('input[name="volatility-bark-mode"]:checked')?.value;
@@ -2224,40 +2375,116 @@ async function saveVolatilityBarkMode() {
   }
 }
 
+// ==================== 登录 / 登出 ====================
+
+function showLoginPage() {
+  document.getElementById('login-section').style.display = 'flex';
+  document.getElementById('main-content').style.display = 'none';
+  document.querySelector('.navbar').style.display = 'none';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-password').focus();
+}
+
+function showMainContent() {
+  document.getElementById('login-section').style.display = 'none';
+  document.getElementById('main-content').style.display = 'block';
+  document.querySelector('.navbar').style.display = 'flex';
+}
+
+async function handleLogin() {
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  
+  if (!password) {
+    errorEl.textContent = '请输入密码';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      setStoredToken(data.token);
+      errorEl.style.display = 'none';
+      showMainContent();
+      initApp();
+    } else {
+      errorEl.textContent = data.error || '密码错误';
+      errorEl.style.display = 'block';
+    }
+  } catch (err) {
+    errorEl.textContent = '登录失败：' + err.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+function handleLogout() {
+  clearStoredToken();
+  showLoginPage();
+}
+
+async function checkAuth() {
+  const token = getStoredToken();
+  if (!token) {
+    showLoginPage();
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/auth/verify', {
+      headers: { 'X-API-Token': token }
+    });
+
+    if (response.ok) {
+      showMainContent();
+      initApp();
+    } else {
+      clearStoredToken();
+      showLoginPage();
+    }
+  } catch (err) {
+    clearStoredToken();
+    showLoginPage();
+  }
+}
+
 // ==================== 初始化 ====================
 
-// 初始化
-async function init() {
+let appInitialized = false;
+
+function initApp() {
+  if (appInitialized) return;
+  appInitialized = true;
+
   showPage('dashboard');
   loadDashboard();
   
-  // 初始化系统开关（仪表盘）
   initSystemToggle();
-  
-  // 初始化自动补全
   initAutocomplete();
-  
-  // 初始化弹窗内搜索
   initAddSymbolSearch();
-
-  // 初始化波动设置（绑定事件）
   initVolatilitySettings();
-  
-  // 加载波动侦测设置（从服务器，包含开关事件绑定）
   loadVolatilitySettings();
-  
-  // 加载 Bark 全局配置
   loadBarkGlobalConfig();
   
-  // 定时刷新仪表盘（每 10 秒）
   setInterval(loadDashboard, 10000);
-  
-  // 连接 WebSocket
   connectWebSocket();
-  
-  // 请求通知权限
   requestNotificationPermission();
 }
 
 // 启动
-init();
+document.addEventListener('DOMContentLoaded', () => {
+  const loginInput = document.getElementById('login-password');
+  if (loginInput) {
+    loginInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleLogin();
+    });
+  }
+});
+checkAuth();

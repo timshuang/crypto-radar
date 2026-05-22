@@ -257,7 +257,7 @@ class AlertService extends EventEmitter {
   /**
    * 发送波动告警
    */
-  async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null, windowMinutes = null, sourceType = null, startPrice = null, endPrice = null, avgQuoteVolume3mPerMinute = null) {
+  async sendVolatilityAlert(symbol, volatility, min, max, threshold, directionOverride = null, windowMinutes = null, sourceType = null, startPrice = null, endPrice = null, avgQuoteVolume3mPerMinute = null, isHighVolume = false, highVolumeThreshold = null) {
     // 使用传入的 windowMinutes，如果没有则从配置读取
     const actualWindowMinutes = windowMinutes || this.configManager?.config?.volatilityModule?.windowMinutes || 5;
     
@@ -284,7 +284,9 @@ class AlertService extends EventEmitter {
       sourceType: actualSourceType,
       startPrice,
       endPrice,
-      avgQuoteVolume3mPerMinute
+      avgQuoteVolume3mPerMinute,
+      isHighVolume,
+      highVolumeThreshold
     };
     const results = await this.sendExternalNotification(alert);
     

@@ -90,6 +90,7 @@ class WebServer extends EventEmitter {
     this.server = null;
     this.startTime = null;
     this.notificationService = null;
+    this.loginAttempts = new Map();
     // 代币列表缓存（5 分钟）
     this.symbolCache = null;
     this.cacheLoadTime = null;
@@ -379,14 +380,19 @@ class WebServer extends EventEmitter {
     try {
       // API 路由
       if (pathname.startsWith('/api/')) {
-        // API Token 验证（除了 status 和 cache/status 端点）
-        if (pathname !== '/api/status' && pathname !== '/api/cache/status') {
-          const token = req.headers['x-api-token'];
-          if (!token || token !== this.apiToken) {
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Unauthorized' }));
-            return;
-          }
+        // 登录端点不需要 token
+        if (pathname === '/api/auth/login' && method === 'POST') {
+          const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
+          await this._handleLogin(req, res, clientIp);
+          return;
+        }
+
+        // 其他所有 API 端点需要 token 验证
+        const token = req.headers['x-api-token'];
+        if (!token || token !== this.apiToken) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
         }
 
         await this._handleApi(req, res, pathname, query);
@@ -398,6 +404,54 @@ class WebServer extends EventEmitter {
       console.error(`[WebServer] 请求处理错误：${err.message}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  /**
+   * 处理登录请求
+   */
+  async _handleLogin(req, res, clientIp) {
+    const now = Date.now();
+    const attempt = this.loginAttempts.get(clientIp) || { count: 0, lockedUntil: 0 };
+
+    if (attempt.lockedUntil > now) {
+      const remainingSec = Math.ceil((attempt.lockedUntil - now) / 1000);
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `登录尝试过多，请 ${remainingSec} 秒后再试` }));
+      return;
+    }
+
+    let body = '';
+    body = await new Promise((resolve) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+    });
+    const parsed = parseBody(body);
+
+    if (!parsed || !parsed.password) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '请输入密码' }));
+      return;
+    }
+
+    if (parsed.password === this.apiToken) {
+      this.loginAttempts.delete(clientIp);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, token: this.apiToken }));
+    } else {
+      attempt.count++;
+      let errorMsg;
+      if (attempt.count >= 5) {
+        attempt.lockedUntil = now + 5 * 60 * 1000;
+        attempt.count = 0;
+        errorMsg = '密码错误次数达到5次，已锁定5分钟';
+      } else {
+        errorMsg = `密码错误，您还有 ${5 - attempt.count} 次尝试机会`;
+      }
+      this.loginAttempts.set(clientIp, attempt);
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: errorMsg }));
     }
   }
 
@@ -421,8 +475,16 @@ class WebServer extends EventEmitter {
     // 路由处理
     let result;
 
+    // GET /api/auth/verify - 验证当前 token
+    if (pathname === '/api/auth/verify' && method === 'GET') {
+      result = { success: true };
+    }
+    // POST /api/auth/change-password - 修改密码
+    else if (pathname === '/api/auth/change-password' && method === 'POST') {
+      result = await this._changePassword(body);
+    }
     // GET /api/status - 系统状态
-    if (pathname === '/api/status' && method === 'GET') {
+    else if (pathname === '/api/status' && method === 'GET') {
       result = this._getStatus();
     }
     // GET /api/cache/status - 缓存状态
@@ -501,42 +563,17 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/system/restart' && method === 'POST') {
       result = this._restartSystem(body);
     }
-    // GET /api/volatility/config - 获取波动模块配置（新版）
+    // GET /api/volatility/config - 获取波动模块配置
     else if (pathname === '/api/volatility/config' && method === 'GET') {
       result = this._getVolatilityConfig();
     }
-    // PUT /api/volatility/start - 开启波动侦测（新版）
+    // PUT /api/volatility/start - 开启波动侦测
     else if (pathname === '/api/volatility/start' && method === 'PUT') {
       result = await this._startVolatility(body);
     }
-    // PUT /api/volatility/toggle - 切换波动侦测开关（新版）
+    // PUT /api/volatility/toggle - 切换波动侦测开关
     else if (pathname === '/api/volatility/toggle' && method === 'PUT') {
-      result = await this._toggleVolatilityNew(body);
-    }
-    // GET /api/volatility - 波动配置（旧版，保留兼容）
-    else if (pathname === '/api/volatility' && method === 'GET') {
-      result = this._getVolatility(query.symbol);
-    }
-    // GET /api/volatility/settings - 获取波动设置（旧版，保留兼容）
-    else if (pathname === '/api/volatility/settings' && method === 'GET') {
-      result = this._getVolatilitySettings();
-    }
-    // PUT /api/volatility/settings - 更新波动设置（旧版，保留兼容）
-    else if (pathname === '/api/volatility/settings' && method === 'PUT') {
-      result = await this._updateVolatilitySettings(body);
-    }
-    // PUT /api/volatility/scope - 更新波动监控范围（旧版，保留兼容）
-    else if (pathname === '/api/volatility/scope' && method === 'PUT') {
-      result = await this._updateVolatilityScope(body);
-    }
-    // PUT /api/volatility/:symbol - 更新波动配置（旧版，保留兼容）
-    else if (pathname.match(/^\/api\/volatility\/[^/]+$/) && method === 'PUT') {
-      const symbol = pathname.split('/')[3];
-      result = await this._updateVolatility(symbol, body);
-    }
-    // POST /api/volatility/toggle - 切换波动侦测（旧版，保留兼容）
-    else if (pathname === '/api/volatility/toggle' && method === 'POST') {
-      result = this._toggleVolatility(body);
+      result = await this._toggleVolatility(body);
     }
     // GET /api/settings - 系统设置
     else if (pathname === '/api/settings' && method === 'GET') {
@@ -578,6 +615,14 @@ class WebServer extends EventEmitter {
     // PUT /api/notification/config/bark/volatility/mode - 保存波动侦测 Bark 模式
     else if (pathname === '/api/notification/config/bark/volatility/mode' && method === 'PUT') {
       result = await this._saveBarkVolatilityMode(body);
+    }
+    // GET /api/config/export - 导出完整配置
+    else if (pathname === '/api/config/export' && method === 'GET') {
+      result = await this._exportConfig();
+    }
+    // POST /api/config/import - 导入完整配置
+    else if (pathname === '/api/config/import' && method === 'POST') {
+      result = await this._importConfig(body);
     }
     else {
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -885,12 +930,7 @@ class WebServer extends EventEmitter {
       enabled: data.enabled !== false,
       source: source,
       alphaId: alphaId, // Alpha 代币专用字段
-      targets: [],
-      volatility: {
-        enabled: true,
-        windowMinutes: 5,
-        thresholdPercent: 20
-      }
+      targets: []
     };
 
     config.symbols.push(newSymbol);
@@ -931,9 +971,6 @@ class WebServer extends EventEmitter {
       }
     }
     if (data.source) symbolConfig.source = data.source;
-    if (data.volatility) {
-      symbolConfig.volatility = { ...symbolConfig.volatility, ...data.volatility };
-    }
 
     await this.configManager.save();
 
@@ -1236,141 +1273,7 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * GET /api/volatility - 波动配置
-   */
-  _getVolatility(symbolFilter) {
-    const config = this.configManager?.config;
-    const symbols = config?.symbols || [];
-    
-    let volatility = [];
-    symbols.forEach(s => {
-      if (symbolFilter && s.symbol !== symbolFilter.toUpperCase()) {
-        return;
-      }
-      volatility.push({
-        symbol: s.symbol,
-        enabled: s.enabled,
-        volatility: s.volatility
-      });
-    });
-
-    return { success: true, data: volatility };
-  }
-
-  /**
-   * PUT /api/volatility/:symbol - 更新波动配置
-   */
-  async _updateVolatility(symbol, data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    const symbolConfig = config.symbols.find(s => s.symbol === symbol.toUpperCase());
-    if (!symbolConfig) {
-      return { success: false, error: '币种不存在' };
-    }
-
-    if (data.volatility) {
-      symbolConfig.volatility = { ...symbolConfig.volatility, ...data.volatility };
-    }
-
-    await this.configManager.save();
-
-    return { success: true, data: symbolConfig.volatility };
-  }
-
-  /**
-   * GET /api/volatility/settings - 获取波动设置
-   */
-  _getVolatilitySettings() {
-    const config = this.configManager?.config;
-    return {
-      success: true,
-      data: {
-        scope: config?.volatilityScope || 'global',
-        windowMinutes: config?.volatilityWindowMinutes || 5,
-        thresholdPercent: config?.volatilityThresholdPercent || 20,
-        enabled: false
-      }
-    };
-  }
-
-  /**
-   * PUT /api/volatility/settings - 更新波动设置（应用到所有币种 + 全局配置）
-   */
-  async _updateVolatilitySettings(data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    // 更新全局配置（用于 global 模式）
-    if (data.windowMinutes !== undefined) {
-      config.volatilityWindowMinutes = parseInt(data.windowMinutes);
-    }
-    if (data.thresholdPercent !== undefined) {
-      config.volatilityThresholdPercent = parseFloat(data.thresholdPercent);
-    }
-
-    // 更新所有币种的波动配置（用于 added 模式）
-    if (config.symbols && Array.isArray(config.symbols)) {
-      for (const symbol of config.symbols) {
-        if (!symbol.volatility) {
-          symbol.volatility = {};
-        }
-        
-        if (data.windowMinutes !== undefined) {
-          symbol.volatility.windowMinutes = parseInt(data.windowMinutes);
-        }
-        if (data.thresholdPercent !== undefined) {
-          symbol.volatility.thresholdPercent = parseFloat(data.thresholdPercent);
-        }
-      }
-    }
-
-    await this.configManager.save();
-    console.log(`[WebServer] 波动设置已更新：window=${config.volatilityWindowMinutes}min, threshold=${config.volatilityThresholdPercent}%`);
-
-    return { success: true, message: '波动设置已更新' };
-  }
-
-  /**
-   * PUT /api/volatility/scope - 更新波动监控范围
-   */
-  async _updateVolatilityScope(data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    if (data.scope) {
-      config.volatilityScope = data.scope;
-    }
-
-    await this.configManager.save();
-
-    return { success: true, data: { scope: config.volatilityScope } };
-  }
-
-  /**
-   * POST /api/volatility/toggle - 切换波动侦测（旧版，保留兼容）
-   */
-  _toggleVolatility(data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    const enabled = data?.enabled !== undefined ? data.enabled : !config.volatilityEnabled;
-    config.volatilityEnabled = enabled;
-    this.configManager.save();
-
-    return { success: true, data: { enabled } };
-  }
-
-  /**
-   * GET /api/volatility/config - 获取波动模块配置（新版）
+   * GET /api/volatility/config - 获取波动模块配置
    */
   _getVolatilityConfig() {
     const config = this.configManager?.config;
@@ -1383,9 +1286,9 @@ class WebServer extends EventEmitter {
       scope: 'global',
       windowMinutes: 5,
       thresholdPercent: 20,
-      minAvgQuoteVolume3m: 50,
-      barkEnabled: false,
-      barkMode: 'normal'
+      minAvgQuoteVolume3m: 100,
+      highVolumeEnabled: false,
+      highVolumeThreshold: 5000
     };
 
     return {
@@ -1395,8 +1298,8 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * PUT /api/volatility/start - 开启波动侦测（新版）
-   * 提交当前页面参数到 config
+   * PUT /api/volatility/start - 开启波动侦测
+   * 保存全部参数 + 启动引擎 + 发送 TG 通知
    */
   async _startVolatility(data) {
     const config = this.configManager?.config;
@@ -1413,20 +1316,12 @@ class WebServer extends EventEmitter {
     config.volatilityModule.enabled = true;
     config.volatilityModule.scope = data?.scope || 'global';
     config.volatilityModule.windowMinutes = parseInt(data?.windowMinutes) || 5;
-    
-    // 调试日志：打印收到的数据
-    console.log('[WebServer] _startVolatility - 收到的 data:', JSON.stringify(data));
-    console.log('[WebServer] _startVolatility - data.thresholdPercent:', data?.thresholdPercent, 'typeof:', typeof data?.thresholdPercent);
-    console.log('[WebServer] _startVolatility - parseFloat 结果:', parseFloat(data?.thresholdPercent));
-    
-    config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;  // 支持小数
-    config.volatilityModule.minAvgQuoteVolume3m = parseFloat(data?.minAvgQuoteVolume3m) || 50;
-    config.volatilityModule.barkEnabled = config.bark?.volatilityEnabled || false;
-    config.volatilityModule.barkMode = config.bark?.volatilityMode || 'normal';
+    config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;
+    config.volatilityModule.minAvgQuoteVolume3m = parseFloat(data?.minAvgQuoteVolume3m) || 100;
+    config.volatilityModule.highVolumeEnabled = data?.highVolumeEnabled === true;
+    config.volatilityModule.highVolumeThreshold = parseFloat(data?.highVolumeThreshold) || 5000;
 
     await this.configManager.save();
-
-    console.log('[WebServer] 保存后的 config.volatilityModule:', config.volatilityModule);
 
     console.log(`[WebServer] 波动侦测已开启：scope=${config.volatilityModule.scope}, window=${config.volatilityModule.windowMinutes}min, threshold=${config.volatilityModule.thresholdPercent}%`);
 
@@ -1435,7 +1330,7 @@ class WebServer extends EventEmitter {
     const windowMinutes = config.volatilityModule.windowMinutes || 5;
     const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
     const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
-    const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 50;
+    const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 100;
     
     let rangeText;
     if (scope === 'global') {
@@ -1482,10 +1377,10 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * PUT /api/volatility/toggle - 切换波动侦测开关（新版）
-   * 关闭时删除 config 参数，前端保持当前值
+   * PUT /api/volatility/toggle - 切换波动侦测开关
+   * 关闭时保留 config 参数，便于下次直接恢复
    */
-  async _toggleVolatilityNew(data) {
+  async _toggleVolatility(data) {
     const config = this.configManager?.config;
     if (!config) {
       return { success: false, error: '配置未加载' };
@@ -1498,11 +1393,6 @@ class WebServer extends EventEmitter {
     }
 
     config.volatilityModule.enabled = enabled;
-
-    // 关闭时不删除参数：保留上次配置，便于下次直接恢复
-    if (!enabled) {
-      console.log('[WebServer] 波动侦测已关闭，保留现有参数');
-    }
 
     await this.configManager.save();
 
@@ -1523,6 +1413,28 @@ class WebServer extends EventEmitter {
       message: enabled ? '波动侦测已开启' : '波动侦测已关闭',
       data: { enabled }
     };
+  }
+
+  /**
+   * POST /api/auth/change-password - 修改密码
+   */
+  async _changePassword(data) {
+    if (!data || !data.newPassword || data.newPassword.length < 6) {
+      return { success: false, error: '密码长度不能少于 6 位' };
+    }
+
+    try {
+      this.apiToken = data.newPassword;
+
+      this.configManager.config.apiToken = data.newPassword;
+      await this.configManager.save();
+
+      console.log('[WebServer] 登录密码已更新');
+      return { success: true, message: '密码已更新，下次登录时生效' };
+    } catch (err) {
+      console.error('[WebServer] 更新密码失败:', err.message);
+      return { success: false, error: '密码更新失败: ' + err.message };
+    }
   }
 
   /**
@@ -1795,18 +1707,6 @@ class WebServer extends EventEmitter {
         symbolConfig.barkMode = data.barkMode;
       }
 
-      if (data.volatility) {
-        if (!symbolConfig.volatility) {
-          symbolConfig.volatility = {};
-        }
-        if (data.volatility.barkEnabled !== undefined) {
-          symbolConfig.volatility.barkEnabled = data.volatility.barkEnabled;
-        }
-        if (data.volatility.barkMode !== undefined) {
-          symbolConfig.volatility.barkMode = data.volatility.barkMode;
-        }
-      }
-
       await this.configManager.save();
 
       return {
@@ -2006,6 +1906,174 @@ class WebServer extends EventEmitter {
         error: 'TEST_FAILED',
         message: err.message
       };
+    }
+  }
+
+  /**
+   * GET /api/config/export - 导出完整配置
+   */
+  async _exportConfig() {
+    try {
+      const config = this.configManager?.config;
+      if (!config) {
+        return { success: false, error: '配置未加载' };
+      }
+
+      const exportData = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        config: {
+          settingsPage: {
+            bark: {
+              deviceKey: process.env.BARK_KEY || '',
+              soundNormal: process.env.BARK_SOUND_NORMAL || config.bark?.soundNormal || 'minuet',
+              soundCritical: process.env.BARK_SOUND_CRITICAL || config.bark?.soundCritical || 'alarm',
+              volume: parseInt(process.env.BARK_VOLUME) || config.bark?.volume || 5
+            },
+            telegram: {
+              enabled: config.telegram?.enabled || false,
+              botToken: process.env.TG_BOT_TOKEN || '',
+              chatId: process.env.TG_CHAT_ID || ''
+            },
+            cache: {
+              alertSilenceMinutes: config.settings?.alertSilenceMinutes || 5,
+              maxPriceRecordsPerSymbol: config.settings?.maxPriceRecordsPerSymbol || 720
+            }
+          },
+          marketPage: {
+            priceMonitor: {
+              bark: {
+                enabled: config.bark?.monitorEnabled !== false,
+                mode: config.bark?.monitorMode || 'normal'
+              },
+              symbols: config.symbols || []
+            },
+            volatility: {
+              bark: {
+                enabled: config.bark?.volatilityEnabled === true,
+                mode: config.bark?.volatilityMode || 'normal'
+              },
+              params: {
+                enabled: config.volatilityModule?.enabled || false,
+                scope: config.volatilityModule?.scope || 'global',
+                windowMinutes: config.volatilityModule?.windowMinutes || 5,
+                thresholdPercent: config.volatilityModule?.thresholdPercent || 20,
+                minAvgQuoteVolume3m: config.volatilityModule?.minAvgQuoteVolume3m || 100
+              }
+            }
+          }
+        }
+      };
+
+      return exportData;
+    } catch (err) {
+      return { success: false, error: '导出失败: ' + err.message };
+    }
+  }
+
+  /**
+   * POST /api/config/import - 导入完整配置（完全覆盖）
+   */
+  async _importConfig(data) {
+    try {
+      if (!data || !data.config) {
+        return { success: false, error: '无效的配置文件格式' };
+      }
+
+      if (!data.version) {
+        return { success: false, error: '缺少版本号' };
+      }
+
+      const config = this.configManager?.config;
+      if (!config) {
+        return { success: false, error: '配置管理器未加载' };
+      }
+
+      const imported = data.config;
+      const sp = imported.settingsPage || {};
+      const mp = imported.marketPage || {};
+      const pm = mp.priceMonitor || {};
+      const vol = mp.volatility || {};
+
+      // === settingsPage: 更新 config.json ===
+      if (sp.telegram) {
+        config.telegram = { enabled: sp.telegram.enabled || false };
+      }
+      if (sp.cache) {
+        config.settings = {
+          ...config.settings,
+          alertSilenceMinutes: sp.cache.alertSilenceMinutes || 5,
+          maxPriceRecordsPerSymbol: sp.cache.maxPriceRecordsPerSymbol || 720
+        };
+      }
+
+      // === marketPage.priceMonitor: 更新 config.json ===
+      if (pm.bark || pm.symbols) {
+        config.bark = { ...config.bark };
+      }
+      if (pm.bark) {
+        config.bark.monitorEnabled = pm.bark.enabled !== false;
+        config.bark.monitorMode = pm.bark.mode || 'normal';
+      }
+      if (pm.symbols) {
+        config.symbols = pm.symbols;
+      }
+
+      // === marketPage.volatility: 更新 config.json ===
+      if (vol.bark || vol.params) {
+        config.bark = { ...config.bark };
+      }
+      if (vol.bark) {
+        config.bark.volatilityEnabled = vol.bark.enabled === true;
+        config.bark.volatilityMode = vol.bark.mode || 'normal';
+      }
+      if (vol.params) {
+        config.volatilityModule = {
+          enabled: vol.params.enabled || false,
+          scope: vol.params.scope || 'global',
+          windowMinutes: vol.params.windowMinutes || 5,
+          thresholdPercent: vol.params.thresholdPercent || 20,
+          minAvgQuoteVolume3m: vol.params.minAvgQuoteVolume3m || 100
+        };
+      }
+
+      // 保存 config.json
+      await this.configManager.save();
+
+      // === 更新 .env 敏感字段（settingsPage.bark + settingsPage.telegram）===
+      const envUpdates = {};
+      if (sp.bark?.deviceKey !== undefined) {
+        envUpdates.BARK_KEY = sp.bark.deviceKey;
+      }
+      if (sp.bark?.soundNormal !== undefined) {
+        envUpdates.BARK_SOUND_NORMAL = sp.bark.soundNormal;
+      }
+      if (sp.bark?.soundCritical !== undefined) {
+        envUpdates.BARK_SOUND_CRITICAL = sp.bark.soundCritical;
+      }
+      if (sp.bark?.volume !== undefined) {
+        envUpdates.BARK_VOLUME = sp.bark.volume.toString();
+      }
+      if (sp.telegram?.botToken !== undefined) {
+        envUpdates.TG_BOT_TOKEN = sp.telegram.botToken;
+      }
+      if (sp.telegram?.chatId !== undefined) {
+        envUpdates.TG_CHAT_ID = sp.telegram.chatId;
+      }
+
+      if (Object.keys(envUpdates).length > 0) {
+        await this._saveEnvFile(envUpdates);
+        require('dotenv').config({ override: true });
+      }
+
+      console.log('[WebServer] 配置已导入并覆盖');
+
+      return {
+        success: true,
+        message: '配置已导入，系统将重启以生效'
+      };
+    } catch (err) {
+      return { success: false, error: '导入失败: ' + err.message };
     }
   }
 }

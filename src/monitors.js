@@ -315,6 +315,8 @@ class VolatilityMonitor {
       threshold: currentThreshold,
       baseThreshold: thresholdPercent,
       minAvgQuoteVolume3m: config.minAvgQuoteVolume3m,
+      highVolumeEnabled: config.highVolumeEnabled,
+      highVolumeThreshold: config.highVolumeThreshold,
       isTriggered,
       windowMinutes
     };
@@ -353,11 +355,21 @@ class VolatilityMonitor {
         return false;
       }
     }
+
+    // 大额强提醒判断：在基础条件通过后，检查是否达到大额阈值
+    let isHighVolume = false;
+    if (result.highVolumeEnabled && result.highVolumeThreshold > 0) {
+      const avgVol = result.avgQuoteVolume3mPerMinute;
+      if (avgVol != null && avgVol >= result.highVolumeThreshold) {
+        isHighVolume = true;
+        console.log(`[Volatility] ${symbol} 达到大额阈值：${avgVol.toFixed(2)} >= ${result.highVolumeThreshold}，触发大额强提醒`);
+      }
+    }
     
     // ⚠️ 关键修复：立即设置静默期（同步），防止竞态条件
     this.storage.setAlertSilence(volatilityKey);
     if (isTrackedSpot && this._isDebugEnabled()) {
-      console.log(`[Volatility][TrackedSpot] stage=handleTrigger.send, symbol=${symbol}, key=${volatilityKey}, volatility=${(volatility || 0).toFixed(2)}, threshold=${threshold}, sourceType=${sourceType || 'N/A'}, windowMinutes=${windowMinutes}`);
+      console.log(`[Volatility][TrackedSpot] stage=handleTrigger.send, symbol=${symbol}, key=${volatilityKey}, volatility=${(volatility || 0).toFixed(2)}, threshold=${threshold}, sourceType=${sourceType || 'N/A'}, windowMinutes=${windowMinutes}, isHighVolume=${isHighVolume}`);
     }
     
     // 发送告警（异步操作）
@@ -372,21 +384,23 @@ class VolatilityMonitor {
       sourceType,
       startPrice,
       endPrice,
-      result.avgQuoteVolume3mPerMinute
+      result.avgQuoteVolume3mPerMinute,
+      isHighVolume,
+      result.highVolumeThreshold
     );
     
     if (sent) {
       if (isTrackedSpot && this._isDebugEnabled()) {
         console.log(`[Volatility][TrackedSpot] stage=handleTrigger.sent, symbol=${symbol}, key=${volatilityKey}`);
       }
-      console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发`);
+      console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发${isHighVolume ? '（大额强提醒）' : ''}`);
       return true;
     }
     
     if (isTrackedSpot && this._isDebugEnabled()) {
       console.log(`[Volatility][TrackedSpot] stage=handleTrigger.sendFailed, symbol=${symbol}, key=${volatilityKey}`);
     }
-    console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发（通知发送失败）`);
+    console.log(`[Volatility] ${symbol} 波动 ${(volatility || 0).toFixed(2)}% 已触发（通知发送失败）${isHighVolume ? '（大额强提醒）' : ''}`);
     return true;  // 返回 true 表示已处理，避免重复触发
   }
 
