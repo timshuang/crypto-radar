@@ -1129,12 +1129,210 @@ input:checked + .toggle-slider:before {
 }
 
 .volatility-status-text {
-  color: #00d9ff;
+  color: #aaa;
   font-weight: 600;
   margin-left: 10px;
+  font-size: inherit;
 }
 
-/* 响应式 */
+/* ==================== 波动侦测 - 新布局 ==================== */
+.volatility-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.volatility-header h2 {
+  margin: 0;
+}
+
+.volatility-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.volatility-status-label {
+  color: #4ade80;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.volatility-scope-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+/* 左右并排容器 */
+.volatility-tiers {
+  display: flex;
+  gap: 16px;
+}
+
+/* 区块卡片 */
+.volatility-tier-card {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* 标题行 */
+.tier-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.tier-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: #00d9ff;
+  color: #1a1a2e;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.tier-name {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* 副标题 */
+.tier-subtitle {
+  font-size: 0.85em;
+  color: #aaa;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.tier-highlight {
+  color: #f5c86c;
+  font-weight: 600;
+}
+
+.tier-icon {
+  flex-shrink: 0;
+}
+
+.tier-icon.tg-icon {
+  color: #2AABEE;
+}
+
+.tier-icon.bark-icon {
+  color: #FF6B6B;
+}
+
+/* 区块内的字段容器 */
+.tier-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.tier-fields .volatility-row {
+  margin-bottom: 12px;
+}
+
+/* 底部注释 */
+.tier-note {
+  font-size: 0.8em;
+  color: #888;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* 大额区块 - 开关标签 */
+.tier-switch-label {
+  color: #eee;
+  font-size: 0.9em;
+  margin-left: 4px;
+}
+
+/* 大额区块 - 开关行紧凑 */
+.tier-switch-row {
+  gap: 8px;
+}
+
+.tier-switch-row .volatility-label {
+  min-width: 0;
+}
+
+/* 箭头符号 */
+.tier-arrow {
+  color: #666;
+  margin-right: 2px;
+  font-size: 0.9em;
+  flex-shrink: 0;
+}
+
+/* 大额区块 - 输入行 */
+.tier-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tier-input-prefix {
+  color: #aaa;
+  font-size: 0.88em;
+  white-space: nowrap;
+}
+
+/* 大额区块 - 警告 */
+.tier-warning {
+  font-size: 0.8em;
+  color: #f0ad4e;
+  margin-bottom: 14px;
+  padding-left: 2px;
+}
+
+/* Bark 模式组 */
+.bark-mode-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  margin-left: 4px;
+}
+
+.bark-mode-hint {
+  font-size: 0.8em;
+  color: #888;
+  margin-left: 6px;
+}
+
+.bark-mode-options.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.bark-mode-group .bark-mode-radio {
+  margin: 0;
+}
+
+.bark-mode-desc {
+  font-size: 0.8em;
+  color: #888;
+}
+
+/* 响应式 - 小屏改为上下排列 */
 @media (max-width: 768px) {
   .navbar {
     flex-direction: column;
@@ -1175,6 +1373,16 @@ input:checked + .toggle-slider:before {
   
   .volatility-label {
     margin-bottom: 5px;
+  }
+
+  .volatility-tiers {
+    flex-direction: column;
+  }
+
+  .volatility-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
   }
   
   .target-input-group {

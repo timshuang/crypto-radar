@@ -1085,13 +1085,13 @@ async function toggleSystem(enabled) {
 // 加载系统状态（仪表盘）
 async function loadSystemStatus() {
   try {
-    const response = await fetch('/api/status');
-    const data = await response.json();
+    const result = await api('/status');
+    const data = result.data;
 
     const status = document.getElementById('toggleStatus');
     if (status) {
-      const isEnabled = data.data?.systemEnabled !== false && data.data?.running !== false;
-      const versionDisplay = data.data?.versionDisplay ? `（当前版本：${data.data.versionDisplay}）` : '';
+      const isEnabled = data?.systemEnabled !== false && data?.running !== false;
+      const versionDisplay = data?.versionDisplay ? `（当前版本：${data.versionDisplay}）` : '';
       status.textContent = isEnabled
         ? `系统运行中${versionDisplay}`
         : '系统当前未运行';
@@ -1178,7 +1178,9 @@ document.querySelectorAll('.nav-links a').forEach(link => {
 let volatilityWindowValue = 5;
 let volatilityThresholdValue = 20;
 let volatilityScopeValue = 'global';
-let volatilityMinAvgVolumeValue = 50;
+let volatilityMinAvgVolumeValue = 100;
+let volatilityHighVolumeEnabled = false;
+let volatilityHighVolumeThresholdValue = 5000;
 
 // 初始化波动设置（只绑定事件，不设置默认值）
 function initVolatilitySettings() {
@@ -1268,11 +1270,23 @@ function initVolatilitySettings() {
       volatilityScopeValue = radio.value;
     });
   });
+
+  // 大额阈值输入框监听
+  const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+  if (highVolumeThresholdInput) {
+    highVolumeThresholdInput.addEventListener('change', () => {
+      const value = parseFloat(highVolumeThresholdInput.value);
+      if (value !== undefined && value !== null && value >= 1) {
+        volatilityHighVolumeThresholdValue = value;
+      }
+    });
+  }
 }
 
 // 切换波动侦测开关（新版：互斥开关，只在开启时提交参数）
 async function onVolatilityToggle(checked) {
   const toggle = document.getElementById('volatilityToggle');
+  const statusLabel = document.getElementById('volatility-status-label');
   
   try {
     if (checked) {
@@ -1281,6 +1295,8 @@ async function onVolatilityToggle(checked) {
       const thresholdInput = document.getElementById('volatilityThresholdCustom');
       const minAvgVolumeInput = document.getElementById('volatilityMinAvgVolumeCustom');
       const scopeRadio = document.querySelector('input[name="volatilityScope"]:checked');
+      const highVolumeToggle = document.getElementById('volatilityHighVolumeToggle');
+      const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
       
       // 调试日志：打印输入框的实际值
       console.log('[Volatility] 提交参数 - windowInput.value:', windowInput.value, 'thresholdInput.value:', thresholdInput.value);
@@ -1295,8 +1311,10 @@ async function onVolatilityToggle(checked) {
       const params = {
         windowMinutes: parseInt(windowValue) || 5,
         thresholdPercent: parseFloat(thresholdValue) || 20,
-        minAvgQuoteVolume3m: parseFloat(minAvgVolumeInput.value.replace(',', '.')) || 50,
-        scope: scopeRadio ? scopeRadio.value : 'global'
+        minAvgQuoteVolume3m: parseFloat(minAvgVolumeInput.value.replace(',', '.')) || 100,
+        scope: scopeRadio ? scopeRadio.value : 'global',
+        highVolumeEnabled: highVolumeToggle ? highVolumeToggle.checked : false,
+        highVolumeThreshold: highVolumeThresholdInput ? parseFloat(highVolumeThresholdInput.value.replace(',', '.')) || 5000 : 5000
       };
       
       console.log('[Volatility] 最终提交的 params:', params);
@@ -1308,8 +1326,10 @@ async function onVolatilityToggle(checked) {
       
       if (response.success) {
         showToast('波动侦测已开启', 'success');
+        if (statusLabel) statusLabel.textContent = '(已开启)';
       } else {
         toggle.checked = false;
+        if (statusLabel) statusLabel.textContent = '(已关闭)';
         showToast(response.message || '开启失败', 'error');
       }
     } else {
@@ -1321,15 +1341,18 @@ async function onVolatilityToggle(checked) {
       
       if (response.success) {
         showToast('波动侦测已关闭', 'success');
+        if (statusLabel) statusLabel.textContent = '(已关闭)';
         // 前端保持当前值，不重置
       } else {
         toggle.checked = true;
+        if (statusLabel) statusLabel.textContent = '(已开启)';
         showToast(response.message || '关闭失败', 'error');
       }
     }
   } catch (err) {
     console.error('切换波动侦测失败:', err);
     toggle.checked = !checked;
+    if (statusLabel) statusLabel.textContent = checked ? '(已开启)' : '(已关闭)';
     showToast('操作失败：' + err.message, 'error');
   }
 }
@@ -1379,7 +1402,7 @@ async function loadVolatilitySettings() {
       volatilityThresholdValue = parseFloat(thresholdCustomInput.value) || volatilityThresholdValue;
     }
 
-    volatilityMinAvgVolumeValue = config.minAvgQuoteVolume3m || 50;
+    volatilityMinAvgVolumeValue = config.minAvgQuoteVolume3m || 100;
     const minAvgVolumeSelect = document.getElementById('volatilityMinAvgVolume');
     const minAvgVolumeCustomInput = document.getElementById('volatilityMinAvgVolumeCustom');
     const minAvgPresetValues = ['15', '50', '100'];
@@ -1393,6 +1416,23 @@ async function loadVolatilitySettings() {
       minAvgVolumeCustomInput.disabled = false;
       volatilityMinAvgVolumeValue = parseFloat(minAvgVolumeCustomInput.value) || volatilityMinAvgVolumeValue;
     }
+
+    // 设置大额强提醒
+    volatilityHighVolumeEnabled = config.highVolumeEnabled === true;
+    const highVolumeToggle = document.getElementById('volatilityHighVolumeToggle');
+    if (highVolumeToggle) {
+      highVolumeToggle.checked = volatilityHighVolumeEnabled;
+    }
+
+    // 联动 Bark 模式可见性
+    updateBarkModeVisibility(volatilityHighVolumeEnabled);
+
+    volatilityHighVolumeThresholdValue = config.highVolumeThreshold || 5000;
+    const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+    if (highVolumeThresholdInput) {
+      highVolumeThresholdInput.value = volatilityHighVolumeThresholdValue;
+      highVolumeThresholdInput.disabled = !volatilityHighVolumeEnabled;
+    }
     
     // 设置开关状态
     const toggle = document.getElementById('volatilityToggle');
@@ -1401,6 +1441,11 @@ async function loadVolatilitySettings() {
       // 绑定新的事件处理
       toggle.removeEventListener('change', toggleVolatility);
       toggle.addEventListener('change', (e) => onVolatilityToggle(e.target.checked));
+      // 更新状态文字
+      const statusLabel = document.getElementById('volatility-status-label');
+      if (statusLabel) {
+        statusLabel.textContent = config.enabled === true ? '(已开启)' : '(已关闭)';
+      }
     }
   } catch (err) {
     console.error('加载波动设置失败:', err);
@@ -1408,6 +1453,29 @@ async function loadVolatilitySettings() {
     volatilityWindowValue = 5;
     volatilityThresholdValue = 20;
     volatilityScopeValue = 'global';
+    volatilityHighVolumeEnabled = false;
+    volatilityHighVolumeThresholdValue = 5000;
+  }
+}
+
+// 切换大额强提醒开关（仅更新前端状态，不立即提交）
+function toggleHighVolumeAlert(checked) {
+  volatilityHighVolumeEnabled = checked;
+  updateBarkModeVisibility(checked);
+  // 阈值输入框联动
+  const thresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+  if (thresholdInput) {
+    thresholdInput.disabled = !checked;
+  }
+}
+
+// 更新 Bark 模式选项可见性
+function updateBarkModeVisibility(enabled) {
+  const barkOptions = document.getElementById('bark-mode-options');
+  if (barkOptions) {
+    const radios = barkOptions.querySelectorAll('input[type="radio"]');
+    radios.forEach(r => r.disabled = !enabled);
+    barkOptions.classList.toggle('disabled', !enabled);
   }
 }
 
@@ -2143,18 +2211,11 @@ function updateMonitorModeVisibility(isVisible) {
 }
 
 /**
- * 更新波动侦测模式选择可见性
+ * 更新波动侦测模式选择可见性（保留兼容，模式始终在区块2内可见）
  * @param {boolean} isVisible - 是否显示模式选择
  */
 function updateVolatilityModeVisibility(isVisible) {
-  const container = document.getElementById('volatility-bark-mode-container');
-  if (container) {
-    if (isVisible) {
-      container.classList.add('visible');
-    } else {
-      container.classList.remove('visible');
-    }
-  }
+  // 模式选择器现在在大额区块内，始终可见，无需操作
 }
 
 async function loadBarkGlobalConfig() {
@@ -2181,17 +2242,8 @@ async function loadBarkGlobalConfig() {
       monitorModeRadio.checked = true;
     }
     
-    // 加载波动侦测 Bark 设置
-    const volatilityEnabled = config.bark.volatilityEnabled === true;  // 默认 false
+    // 加载波动侦测 Bark 模式（大额区块内）
     const volatilityMode = ['normal', 'critical'].includes(config.bark.volatilityMode) ? config.bark.volatilityMode : 'normal';
-    
-    const volatilityToggle = document.getElementById('volatility-bark-toggle');
-    if (volatilityToggle) {
-      volatilityToggle.checked = volatilityEnabled;
-    }
-    
-    updateVolatilityModeVisibility(volatilityEnabled);
-    
     const volatilityModeRadio = document.querySelector(`input[name="volatility-bark-mode"][value="${volatilityMode}"]`);
     if (volatilityModeRadio) {
       volatilityModeRadio.checked = true;
@@ -2298,60 +2350,6 @@ async function saveMonitorBarkMode() {
 }
 
 // 切换波动侦测 Bark 通知
-async function toggleVolatilityBark() {
-  const checkbox = document.getElementById('volatility-bark-toggle');
-  const enabled = checkbox.checked;
-  
-  // 如果尝试开启，先校验配置
-  if (enabled) {
-    try {
-      const config = await api('/notification/config');
-      const bark = config.data?.bark || {};
-      const validationError = validateBarkConfigBeforeEnable(bark);
-      
-      if (validationError) {
-        showToast(validationError, 'error');
-        checkbox.checked = false;
-        updateVolatilityModeVisibility(false);
-        return;
-      }
-    } catch (err) {
-      console.error('[toggleVolatilityBark] 配置校验失败:', err);
-      checkbox.checked = false;
-      updateVolatilityModeVisibility(false);
-      showToast('配置校验失败：' + err.message, 'error');
-      return;
-    }
-  }
-  
-  // 1. 立即更新 UI（不等待 API）
-  updateVolatilityModeVisibility(enabled);
-  
-  // 2. 异步保存配置（不阻塞 UI）
-  api('/notification/config/bark/volatility', {
-    method: 'PUT',
-    body: JSON.stringify({})
-  }).then((response) => {
-    // 3. API 返回后显示提示
-    if (response.success) {
-      showToast(
-        enabled ? '已启用波动侦测 Bark 通知' : '已禁用波动侦测 Bark 通知',
-        'success'
-      );
-    } else {
-      // 失败时回滚 UI
-      checkbox.checked = !enabled;
-      updateVolatilityModeVisibility(!enabled);
-      showToast(response.message, 'error');
-    }
-  }).catch(err => {
-    // 4. 如果失败，回滚 UI
-    checkbox.checked = !enabled;
-    updateVolatilityModeVisibility(!enabled);
-    showToast('操作失败：' + err.message, 'error');
-  });
-}
-
 // 保存波动侦测 Bark 模式
 async function saveVolatilityBarkMode() {
   const mode = document.querySelector('input[name="volatility-bark-mode"]:checked')?.value;

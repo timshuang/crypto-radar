@@ -31,7 +31,7 @@
       <div class="nav-links">
         <a href="#" data-page="dashboard" class="active">仪表盘</a>
         <a href="#" data-page="monitor">行情监控</a>
-        <a href="#" data-page="alerts">报警历史</a>
+        <a href="#" data-page="alerts">告警历史</a>
         <a href="#" data-page="settings">设置</a>
         <a href="#" onclick="handleLogout(); return false;" class="nav-logout">登出</a>
       </div>
@@ -136,92 +136,144 @@
 
         <!-- 波动侦测参数 -->
         <div class="card">
-          <h2>🌊 波动侦测</h2>
-          
-          <!-- Bark 通知控制条 -->
-          <div class="bark-control-bar">
-            <span class="bark-control-label">🔔 启用 Bark 通知</span>
-            
-            <!-- 开关 -->
-            <label class="toggle-switch">
-              <input type="checkbox" id="volatility-bark-toggle" onchange="toggleVolatilityBark()">
-              <span class="toggle-slider"></span>
-            </label>
-            
-            <!-- 模式选择容器 (条件显示) -->
-            <div id="volatility-bark-mode-container" class="bark-mode-container">
-              <label class="bark-mode-radio">
-                <input type="radio" name="volatility-bark-mode" value="normal" checked onchange="saveVolatilityBarkMode()">
-                <span class="bark-mode-radio-label">普通模式</span>
-              </label>
-              <label class="bark-mode-radio">
-                <input type="radio" name="volatility-bark-mode" value="critical" onchange="saveVolatilityBarkMode()">
-                <span class="bark-mode-radio-label">紧急模式</span>
-                <span class="bark-mode-hint">（可在睡眠模式下响铃）</span>
-              </label>
-            </div>
-          </div>
-          
-          <div class="volatility-section">
-            <div class="volatility-row">
-              <span class="volatility-label">监控范围：</span>
-              <label class="radio-label">
-                <input type="radio" name="volatilityScope" value="global" checked onchange="updateVolatilityScope()">
-                全局监控（所有币种）
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="volatilityScope" value="added" onchange="updateVolatilityScope()">
-                仅已添加币种
-              </label>
-            </div>
-            
-            <div class="volatility-row">
-              <span class="volatility-label">时间窗口：</span>
-              <div class="select-with-input">
-                <select id="volatilityWindow" class="styled-select">
-                  <option value="3">3 分钟</option>
-                  <option value="5" selected>5 分钟</option>
-                  <option value="custom">自定义</option>
-                </select>
-                <input type="number" id="volatilityWindowCustom" class="custom-input" value="5" step="1" min="1" disabled>
-                <span class="input-suffix">分钟</span>
-              </div>
-            </div>
-            
-            <div class="volatility-row">
-              <span class="volatility-label">涨跌幅<span class="tooltip-hint" data-tooltip="涨跌幅设定小于 5% 时，跳过 3 分钟平均成交额校验" aria-label="查看涨跌幅说明">?</span>：</span>
-              <div class="select-with-input">
-                <select id="volatilityThreshold" class="styled-select">
-                  <option value="10">10%</option>
-                  <option value="20" selected>20%</option>
-                  <option value="30">30%</option>
-                  <option value="custom">自定义</option>
-                </select>
-                <input type="number" id="volatilityThresholdCustom" class="custom-input" value="20" step="0.1" min="0.1" disabled>
-                <span class="input-suffix">%</span>
-              </div>
-            </div>
-
-            <div class="volatility-row">
-              <span class="volatility-label">近3分钟平均交易额<span class="tooltip-hint" data-tooltip="最近 3 分钟平均成交额未达到设定值时，不推送消息" aria-label="查看 3 分钟平均交易额说明">?</span>：</span>
-              <div class="select-with-input">
-                <select id="volatilityMinAvgVolume" class="styled-select">
-                  <option value="15">15</option>
-                  <option value="50" selected>50</option>
-                  <option value="100">100</option>
-                  <option value="custom">自定义</option>
-                </select>
-                <input type="number" id="volatilityMinAvgVolumeCustom" class="custom-input" value="50" step="1" min="1" disabled>
-                <span class="input-suffix">USDT</span>
-              </div>
-            </div>
-            
-            <div class="volatility-row">
-              <span class="volatility-label">侦测状态：</span>
+          <div class="volatility-header">
+            <h2>🌊 波动侦测</h2>
+            <div class="volatility-header-right">
+              <span class="volatility-status-text" id="volatility-status-text">侦测状态</span>
               <label class="toggle-switch">
                 <input type="checkbox" id="volatilityToggle" onchange="onVolatilityToggle(this.checked)">
                 <span class="toggle-slider"></span>
               </label>
+              <span class="volatility-status-label" id="volatility-status-label">(已关闭)</span>
+            </div>
+          </div>
+
+          <div class="volatility-scope-row">
+            <span class="volatility-label">监控范围：</span>
+            <label class="radio-label">
+              <input type="radio" name="volatilityScope" value="global" checked onchange="updateVolatilityScope()">
+              全局监控（所有币种）
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="volatilityScope" value="added" onchange="updateVolatilityScope()">
+              仅已添加币种
+            </label>
+          </div>
+
+          <div class="volatility-tiers">
+            <!-- 区块1：常规波动提醒 -->
+            <div class="volatility-tier-card">
+              <div class="tier-title">
+                <span class="tier-number">1</span>
+                <span class="tier-name">常规波动提醒</span>
+              </div>
+              <div class="tier-subtitle">
+                满足以下条件时，仅通过 <span class="tier-highlight">Telegram</span> 发送<span class="tier-highlight">普通消息</span>
+                <svg class="tier-icon tg-icon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+              </div>
+              <div class="tier-fields">
+                <div class="volatility-row">
+                  <span class="volatility-label"><span class="tier-arrow">↳</span>时间窗口：</span>
+                  <div class="select-with-input">
+                    <select id="volatilityWindow" class="styled-select">
+                      <option value="3">3 分钟</option>
+                      <option value="5" selected>5 分钟</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                    <input type="number" id="volatilityWindowCustom" class="custom-input" value="5" step="1" min="1" disabled>
+                    <span class="input-suffix">分钟</span>
+                  </div>
+                </div>
+
+                <div class="volatility-row">
+                  <span class="volatility-label"><span class="tier-arrow">↳</span>涨跌幅<span class="tooltip-hint" data-tooltip="涨跌幅设定小于 5% 时，跳过 3 分钟平均成交额校验" aria-label="查看涨跌幅说明">?</span>：</span>
+                  <div class="select-with-input">
+                    <select id="volatilityThreshold" class="styled-select">
+                      <option value="10">10%</option>
+                      <option value="20" selected>20%</option>
+                      <option value="30">30%</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                    <input type="number" id="volatilityThresholdCustom" class="custom-input" value="20" step="0.1" min="0.1" disabled>
+                    <span class="input-suffix">%</span>
+                  </div>
+                </div>
+
+                <div class="volatility-row">
+                  <span class="volatility-label"><span class="tier-arrow">↳</span>近3分钟平均交易额<span class="tooltip-hint" data-tooltip="最近 3 分钟平均成交额未达到设定值时，不推送消息" aria-label="查看 3 分钟平均交易额说明">?</span>：</span>
+                  <div class="select-with-input">
+                    <select id="volatilityMinAvgVolume" class="styled-select">
+                      <option value="15">15</option>
+                      <option value="50">50</option>
+                      <option value="100" selected>100</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                    <input type="number" id="volatilityMinAvgVolumeCustom" class="custom-input" value="100" step="1" min="1" disabled>
+                    <span class="input-suffix">USDT</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tier-note">（注：此条件下仅发送 TG 普通消息。）</div>
+            </div>
+
+            <!-- 区块2：大额/爆量强提醒 -->
+            <div class="volatility-tier-card">
+              <div class="tier-title">
+                <span class="tier-number">2</span>
+                <span class="tier-name">大额/爆量强提醒</span>
+              </div>
+              <div class="tier-subtitle">
+                满足常规条件且达到更高阈值时，触发
+                <span class="tier-highlight">TG醒目消息</span>
+                <svg class="tier-icon tg-icon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                + <span class="tier-highlight">Bark推送</span>
+                <svg class="tier-icon bark-icon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              </div>
+              <div class="tier-fields">
+                <div class="volatility-row tier-switch-row">
+                  <span class="volatility-label">开关</span>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="volatilityHighVolumeToggle" onchange="toggleHighVolumeAlert(this.checked)">
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span class="tier-switch-label">启用大额强提醒</span>
+                </div>
+
+                <div class="volatility-row">
+                  <span class="volatility-label"><span class="tier-arrow">↳</span>触发阈值：</span>
+                  <div class="tier-input-row">
+                    <span class="tier-input-prefix">近3分钟平均交易额 &gt;=</span>
+                    <input type="number" id="volatilityHighVolumeThreshold" class="custom-input" value="5000" step="100" min="1">
+                    <span class="input-suffix">USDT</span>
+                  </div>
+                </div>
+
+                <div class="tier-warning">
+                  ⚠ 需大于或等于基础过滤条件
+                </div>
+
+                <div class="volatility-row">
+                  <span class="volatility-label"><span class="tier-arrow">↳</span>Bark 通知级别：</span>
+                </div>
+
+                <div id="bark-mode-options">
+                  <div class="bark-mode-group">
+                    <label class="bark-mode-radio">
+                      <input type="radio" name="volatility-bark-mode" value="normal" checked onchange="saveVolatilityBarkMode()">
+                      <span class="bark-mode-radio-label">普通模式</span>
+                    </label>
+                    <span class="bark-mode-desc">跟随手机系统，勿扰/睡眠/工作模式不响铃</span>
+                  </div>
+
+                  <div class="bark-mode-group">
+                    <label class="bark-mode-radio">
+                      <input type="radio" name="volatility-bark-mode" value="critical" onchange="saveVolatilityBarkMode()">
+                      <span class="bark-mode-radio-label">紧急模式</span>
+                    </label>
+                    <span class="bark-mode-desc">可渗透手机静音，请谨慎使用</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

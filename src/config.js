@@ -172,7 +172,13 @@ class ConfigManager extends EventEmitter {
       this.config.volatilityModule = {};
     }
     if (this.config.volatilityModule.minAvgQuoteVolume3m === undefined) {
-      this.config.volatilityModule.minAvgQuoteVolume3m = 50;
+      this.config.volatilityModule.minAvgQuoteVolume3m = 100;
+    }
+    if (this.config.volatilityModule.highVolumeEnabled === undefined) {
+      this.config.volatilityModule.highVolumeEnabled = false;
+    }
+    if (this.config.volatilityModule.highVolumeThreshold === undefined) {
+      this.config.volatilityModule.highVolumeThreshold = 5000;
     }
     
     // 币种默认值
@@ -222,7 +228,9 @@ class ConfigManager extends EventEmitter {
         scope: 'global',
         windowMinutes: 5,
         thresholdPercent: 20,
-        minAvgQuoteVolume3m: 50
+        minAvgQuoteVolume3m: 100,
+        highVolumeEnabled: false,
+        highVolumeThreshold: 5000
       }
     };
   }

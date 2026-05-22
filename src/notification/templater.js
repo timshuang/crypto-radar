@@ -58,6 +58,10 @@ class Templater {
    * 示例：[现货] BTCUSDT 5min 上涨 3.5%
    */
   buildVolatilityAlert(alert) {
+    if (alert.isHighVolume) {
+      return this.buildHighVolumeAlert(alert);
+    }
+
     const sourceLabel = normalizeSourceType(alert.sourceType);
     const direction = alert.direction === 'down' ? '下跌' : '上涨';
     const hasPriceRange = alert.startPrice != null && alert.endPrice != null;
@@ -70,6 +74,42 @@ class Templater {
 
     const title = '波动预警';
     const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(2)}%${priceRangeText}${avgVolumeText}`;
+
+    return { title, content };
+  }
+
+  /**
+   * 构建大额波动预警消息（醒目格式）
+   * 格式：
+   * 🚨 大额波动预警
+   *
+   * [Alpha] PRL 5min 🔺上涨 15.8%（0.52 → 0.60）
+   * 📊 近3分钟平均交易额：8,500 usdt
+   * ⚡ 触发大额提醒阈值（≥ 5,000 usdt）
+   */
+  buildHighVolumeAlert(alert) {
+    const sourceLabel = normalizeSourceType(alert.sourceType);
+    const directionArrow = alert.direction === 'down' ? '🔻' : '🔺';
+    const direction = alert.direction === 'down' ? '下跌' : '上涨';
+    const hasPriceRange = alert.startPrice != null && alert.endPrice != null;
+    const priceRangeText = hasPriceRange
+      ? `（${this.formatPrice(alert.startPrice)} → ${this.formatPrice(alert.endPrice)}）`
+      : '';
+
+    const lines = [
+      `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${directionArrow}${direction} ${Math.abs(alert.changePercent).toFixed(2)}%${priceRangeText}`
+    ];
+
+    if (alert.avgQuoteVolume3mPerMinute != null) {
+      lines.push(`📊 近3分钟平均交易额：${this.formatVolume(alert.avgQuoteVolume3mPerMinute)} usdt`);
+    }
+
+    if (alert.highVolumeThreshold != null) {
+      lines.push(`⚡ 触发大额提醒阈值（≥ ${this.formatVolume(alert.highVolumeThreshold)} usdt）`);
+    }
+
+    const title = '🚨 大额波动预警';
+    const content = lines.join('\n');
 
     return { title, content };
   }

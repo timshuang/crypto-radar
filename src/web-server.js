@@ -563,42 +563,17 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/system/restart' && method === 'POST') {
       result = this._restartSystem(body);
     }
-    // GET /api/volatility/config - 获取波动模块配置（新版）
+    // GET /api/volatility/config - 获取波动模块配置
     else if (pathname === '/api/volatility/config' && method === 'GET') {
       result = this._getVolatilityConfig();
     }
-    // PUT /api/volatility/start - 开启波动侦测（新版）
+    // PUT /api/volatility/start - 开启波动侦测
     else if (pathname === '/api/volatility/start' && method === 'PUT') {
       result = await this._startVolatility(body);
     }
-    // PUT /api/volatility/toggle - 切换波动侦测开关（新版）
+    // PUT /api/volatility/toggle - 切换波动侦测开关
     else if (pathname === '/api/volatility/toggle' && method === 'PUT') {
-      result = await this._toggleVolatilityNew(body);
-    }
-    // GET /api/volatility - 波动配置（旧版，保留兼容）
-    else if (pathname === '/api/volatility' && method === 'GET') {
-      result = this._getVolatility(query.symbol);
-    }
-    // GET /api/volatility/settings - 获取波动设置（旧版，保留兼容）
-    else if (pathname === '/api/volatility/settings' && method === 'GET') {
-      result = this._getVolatilitySettings();
-    }
-    // PUT /api/volatility/settings - 更新波动设置（旧版，保留兼容）
-    else if (pathname === '/api/volatility/settings' && method === 'PUT') {
-      result = await this._updateVolatilitySettings(body);
-    }
-    // PUT /api/volatility/scope - 更新波动监控范围（旧版，保留兼容）
-    else if (pathname === '/api/volatility/scope' && method === 'PUT') {
-      result = await this._updateVolatilityScope(body);
-    }
-    // PUT /api/volatility/:symbol - 更新波动配置（旧版，保留兼容）
-    else if (pathname.match(/^\/api\/volatility\/[^/]+$/) && method === 'PUT') {
-      const symbol = pathname.split('/')[3];
-      result = await this._updateVolatility(symbol, body);
-    }
-    // POST /api/volatility/toggle - 切换波动侦测（旧版，保留兼容）
-    else if (pathname === '/api/volatility/toggle' && method === 'POST') {
-      result = this._toggleVolatility(body);
+      result = await this._toggleVolatility(body);
     }
     // GET /api/settings - 系统设置
     else if (pathname === '/api/settings' && method === 'GET') {
@@ -1298,120 +1273,7 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * GET /api/volatility - 波动配置
-   */
-  _getVolatility(symbolFilter) {
-    const config = this.configManager?.config;
-    const symbols = config?.symbols || [];
-    
-    let volatility = [];
-    symbols.forEach(s => {
-      if (symbolFilter && s.symbol !== symbolFilter.toUpperCase()) {
-        return;
-      }
-      volatility.push({
-        symbol: s.symbol,
-        enabled: s.enabled
-      });
-    });
-
-    return { success: true, data: volatility };
-  }
-
-  /**
-   * PUT /api/volatility/:symbol - 更新波动配置
-   */
-  async _updateVolatility(symbol, data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    const symbolConfig = config.symbols.find(s => s.symbol === symbol.toUpperCase());
-    if (!symbolConfig) {
-      return { success: false, error: '币种不存在' };
-    }
-
-    await this.configManager.save();
-
-    return { success: true, data: symbolConfig };
-  }
-
-  /**
-   * GET /api/volatility/settings - 获取波动设置
-   */
-  _getVolatilitySettings() {
-    const config = this.configManager?.config;
-    return {
-      success: true,
-      data: {
-        scope: config?.volatilityScope || 'global',
-        windowMinutes: config?.volatilityWindowMinutes || 5,
-        thresholdPercent: config?.volatilityThresholdPercent || 20,
-        enabled: false
-      }
-    };
-  }
-
-  /**
-   * PUT /api/volatility/settings - 更新波动设置（应用到所有币种 + 全局配置）
-   */
-  async _updateVolatilitySettings(data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    // 更新全局配置（用于 global 模式）
-    if (data.windowMinutes !== undefined) {
-      config.volatilityWindowMinutes = parseInt(data.windowMinutes);
-    }
-    if (data.thresholdPercent !== undefined) {
-      config.volatilityThresholdPercent = parseFloat(data.thresholdPercent);
-    }
-
-    await this.configManager.save();
-    console.log(`[WebServer] 波动设置已更新：window=${config.volatilityWindowMinutes}min, threshold=${config.volatilityThresholdPercent}%`);
-
-    return { success: true, message: '波动设置已更新' };
-  }
-
-  /**
-   * PUT /api/volatility/scope - 更新波动监控范围
-   */
-  async _updateVolatilityScope(data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    if (data.scope) {
-      config.volatilityScope = data.scope;
-    }
-
-    await this.configManager.save();
-
-    return { success: true, data: { scope: config.volatilityScope } };
-  }
-
-  /**
-   * POST /api/volatility/toggle - 切换波动侦测（旧版，保留兼容）
-   */
-  _toggleVolatility(data) {
-    const config = this.configManager?.config;
-    if (!config) {
-      return { success: false, error: '配置未加载' };
-    }
-
-    const enabled = data?.enabled !== undefined ? data.enabled : !config.volatilityEnabled;
-    config.volatilityEnabled = enabled;
-    this.configManager.save();
-
-    return { success: true, data: { enabled } };
-  }
-
-  /**
-   * GET /api/volatility/config - 获取波动模块配置（新版）
+   * GET /api/volatility/config - 获取波动模块配置
    */
   _getVolatilityConfig() {
     const config = this.configManager?.config;
@@ -1424,9 +1286,9 @@ class WebServer extends EventEmitter {
       scope: 'global',
       windowMinutes: 5,
       thresholdPercent: 20,
-      minAvgQuoteVolume3m: 50,
-      barkEnabled: false,
-      barkMode: 'normal'
+      minAvgQuoteVolume3m: 100,
+      highVolumeEnabled: false,
+      highVolumeThreshold: 5000
     };
 
     return {
@@ -1436,8 +1298,8 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * PUT /api/volatility/start - 开启波动侦测（新版）
-   * 提交当前页面参数到 config
+   * PUT /api/volatility/start - 开启波动侦测
+   * 保存全部参数 + 启动引擎 + 发送 TG 通知
    */
   async _startVolatility(data) {
     const config = this.configManager?.config;
@@ -1454,20 +1316,12 @@ class WebServer extends EventEmitter {
     config.volatilityModule.enabled = true;
     config.volatilityModule.scope = data?.scope || 'global';
     config.volatilityModule.windowMinutes = parseInt(data?.windowMinutes) || 5;
-    
-    // 调试日志：打印收到的数据
-    console.log('[WebServer] _startVolatility - 收到的 data:', JSON.stringify(data));
-    console.log('[WebServer] _startVolatility - data.thresholdPercent:', data?.thresholdPercent, 'typeof:', typeof data?.thresholdPercent);
-    console.log('[WebServer] _startVolatility - parseFloat 结果:', parseFloat(data?.thresholdPercent));
-    
-    config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;  // 支持小数
-    config.volatilityModule.minAvgQuoteVolume3m = parseFloat(data?.minAvgQuoteVolume3m) || 50;
-    config.volatilityModule.barkEnabled = config.bark?.volatilityEnabled || false;
-    config.volatilityModule.barkMode = config.bark?.volatilityMode || 'normal';
+    config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;
+    config.volatilityModule.minAvgQuoteVolume3m = parseFloat(data?.minAvgQuoteVolume3m) || 100;
+    config.volatilityModule.highVolumeEnabled = data?.highVolumeEnabled === true;
+    config.volatilityModule.highVolumeThreshold = parseFloat(data?.highVolumeThreshold) || 5000;
 
     await this.configManager.save();
-
-    console.log('[WebServer] 保存后的 config.volatilityModule:', config.volatilityModule);
 
     console.log(`[WebServer] 波动侦测已开启：scope=${config.volatilityModule.scope}, window=${config.volatilityModule.windowMinutes}min, threshold=${config.volatilityModule.thresholdPercent}%`);
 
@@ -1476,7 +1330,7 @@ class WebServer extends EventEmitter {
     const windowMinutes = config.volatilityModule.windowMinutes || 5;
     const thresholdPercent = config.volatilityModule.thresholdPercent || 20;
     const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
-    const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 50;
+    const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 100;
     
     let rangeText;
     if (scope === 'global') {
@@ -1523,10 +1377,10 @@ class WebServer extends EventEmitter {
   }
 
   /**
-   * PUT /api/volatility/toggle - 切换波动侦测开关（新版）
-   * 关闭时删除 config 参数，前端保持当前值
+   * PUT /api/volatility/toggle - 切换波动侦测开关
+   * 关闭时保留 config 参数，便于下次直接恢复
    */
-  async _toggleVolatilityNew(data) {
+  async _toggleVolatility(data) {
     const config = this.configManager?.config;
     if (!config) {
       return { success: false, error: '配置未加载' };
@@ -1539,11 +1393,6 @@ class WebServer extends EventEmitter {
     }
 
     config.volatilityModule.enabled = enabled;
-
-    // 关闭时不删除参数：保留上次配置，便于下次直接恢复
-    if (!enabled) {
-      console.log('[WebServer] 波动侦测已关闭，保留现有参数');
-    }
 
     await this.configManager.save();
 
@@ -2109,7 +1958,7 @@ class WebServer extends EventEmitter {
                 scope: config.volatilityModule?.scope || 'global',
                 windowMinutes: config.volatilityModule?.windowMinutes || 5,
                 thresholdPercent: config.volatilityModule?.thresholdPercent || 20,
-                minAvgQuoteVolume3m: config.volatilityModule?.minAvgQuoteVolume3m || 50
+                minAvgQuoteVolume3m: config.volatilityModule?.minAvgQuoteVolume3m || 100
               }
             }
           }
@@ -2184,7 +2033,7 @@ class WebServer extends EventEmitter {
           scope: vol.params.scope || 'global',
           windowMinutes: vol.params.windowMinutes || 5,
           thresholdPercent: vol.params.thresholdPercent || 20,
-          minAvgQuoteVolume3m: vol.params.minAvgQuoteVolume3m || 50
+          minAvgQuoteVolume3m: vol.params.minAvgQuoteVolume3m || 100
         };
       }
 
