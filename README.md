@@ -1,14 +1,20 @@
-# 🦐 crypto_radar - Web3 双轨行情雷达系统
+# 🦐 ChainPulse - Web3 双轨行情雷达系统
 
 > 轻量化加密货币价格监控工具，专为 1C/512MB RAM VPS 设计
+
+## 🚀 一键安装
+
+```bash
+git clone https://github.com/timshuang/crypto-radar.git && cd crypto-radar && ./deploy.sh install
+```
 
 ## 功能特性
 
 - **双轨监控**：价格目标线 + 波动侦测线
 - **三源接入**：币安现货 + 新币 + Alpha WebSocket
 - **智能告警**：5 分钟静默期 + 阶梯阈值抑制
-- **Bark 推送**：iOS 实时通知（支持分级）
-- **内存优化**：TypedArray 滑动窗口，512MB 友好
+- **Bark / Telegram 推送**：iOS 与 Telegram 实时通知
+- **内存优化**：轻量级设计，适合 512MB+ VPS
 - **持久化**：JSON 文件存储，原子写入防损坏
 - **Web 管理界面**：轻量级可视化操作界面（<50MB 内存）
 - **代币缓存**：5 分钟自动刷新，搜索响应 <50ms
@@ -21,24 +27,7 @@
 - PM2（安装脚本会自动安装）
 - 512MB+ RAM（推荐 1GB）
 
-### 2. 安装
-
-```bash
-# 进入项目目录
-cd crypto_radar
-
-# 运行安装脚本
-./deploy.sh install
-```
-
-### Versioning
-
-- Use `package.json` `version` as the single release version source.
-- Bump versions with `npm version patch --no-git-tag-version`.
-- New machine deployments read `package.json.version` from the deployed branch.
-- `VERSION_META` only keeps `CHANNEL=main/branch`; it no longer stores the version number.
-
-### 3. 配置
+### 2. 配置
 
 编辑 `config.json`：
 
@@ -46,21 +35,21 @@ cd crypto_radar
 nano config.json
 ```
 
-#### 3.1 配置 Bark（必填）
+#### 2.1 配置 Bark / Telegram（推荐）
 
-1. 在 iPhone 上安装 [Bark App](https://apps.apple.com/app/id1211513936)
-2. 打开 App，复制设备密钥（类似：`abc123xyz456`）
-3. 填入配置：
+**Bark 配置**（敏感信息请写入 `.env`）：
+- `BARK_KEY`：你的 Bark 设备密钥
+- 可选：`BARK_SOUND_NORMAL`、`BARK_SOUND_CRITICAL`、`BARK_VOLUME`
 
+**Telegram 配置**（可选）：
+- `TG_BOT_TOKEN` + `TG_CHAT_ID`
+
+在 `config.json` 中可控制开关：
 ```json
-{
-  "bark": {
-    "enabled": true,
-    "deviceKey": "你的设备密钥",
-    "serverUrl": "https://api.day.app",
-    "sound": "alarm.mp3",
-    "group": "crypto_radar"
-  }
+"bark": {
+  "enabled": true,
+  "monitorEnabled": true,
+  "volatilityEnabled": false
 }
 ```
 
@@ -156,7 +145,7 @@ http://你的服务器 IP:3000
 
 Web API 需要 Token 验证（`/api/status` 和 `/api/cache/status` 除外），默认 Token 为：
 ```
-crypto_radar_token_2024
+（请查看 config.json 中的 apiToken 字段）
 ```
 
 可通过环境变量自定义：
@@ -196,7 +185,7 @@ curl http://localhost:3000/api/cache/status
 
 ```bash
 # 搜索代币（需要 Token）
-curl -H "X-API-Token: crypto_radar_token_2024" "http://localhost:3000/api/symbols/search?q=CYS"
+curl -H "X-API-Token: （请查看 config.json 中的 apiToken 字段）" "http://localhost:3000/api/symbols/search?q=CYS"
 
 # 示例响应
 {
@@ -302,12 +291,12 @@ BTCUSDT 波动 2.35% (阈值 2.0%)
       "enabled": true,
       "source": "spot",
       "targets": [],
-      "volatility": {
-        "enabled": true,
-        "windowMinutes": 60,
-        "thresholdPercent": 3.0,
-        "stepThreshold": 0.5
-      }
+"volatilityModule": {
+  "enabled": true,
+  "scope": "global",
+  "windowMinutes": 5,
+  "thresholdPercent": 20
+}
     }
   ]
 }
@@ -403,27 +392,23 @@ BTCUSDT 波动 2.35% (阈值 2.0%)
 ```
 crypto_radar/
 ├── src/
-│   ├── index.js           # 主程序入口
-│   ├── config.js          # 配置管理
-│   ├── storage.js         # 数据存储（价格历史 + 告警状态）
-│   ├── ws-connector.js    # WebSocket 连接器
-│   ├── alert-service.js   # Bark 告警服务
-│   ├── monitors.js        # 监控器（价格目标 + 波动）
-│   ├── checker-engine.js  # 检查引擎（每分钟全量检查）
-│   ├── monitor.js         # 系统监控（内存 + 健康检查）
-│   └── web-server.js      # Web 管理界面服务器
-├── public/                # Web 前端静态文件
-│   ├── index.html         # 主页面
-│   ├── style.css          # 样式表
-│   └── app.js             # 前端 JavaScript
-├── logs/                  # 日志目录（PM2 管理）
-├── backup/                # 配置备份
-├── config.json            # 用户配置（需自行创建）
-├── config.json.example    # 配置模板
-├── ecosystem.config.js    # PM2 配置
-├── deploy.sh              # 部署脚本
-package.json           # package metadata and release version source
-└── README.md              # 本文档
+│   ├── index.js
+│   ├── config.js
+│   ├── storage.js
+│   ├── ws-connector.js
+│   ├── alert-service.js
+│   ├── monitors.js
+│   ├── checker-engine.js
+│   ├── volatility-engine.js
+│   ├── monitor.js
+│   └── web-server.js
+├── src/notification/      # Bark + Telegram 通知服务
+├── public/
+├── logs/
+├── config.json            # 运行配置（含 apiToken）
+├── ecosystem.config.js
+├── deploy.sh
+└── package.json
 ```
 
 ## 内存优化
@@ -498,7 +483,7 @@ pm2 monit
 - ✅ Alpha 价格目标监控
 - ✅ Alpha 波动监控
 
-**详见：** [ALPHA_API_IMPLEMENTATION.md](./ALPHA_API_IMPLEMENTATION.md)
+支持 Alpha 代币全量推送与实时波动侦测（scope: global）。
 
 ## 许可证
 
@@ -506,4 +491,4 @@ MIT License
 
 ---
 
-_🦐 虾指挥出品，代码要能跑！_
+_🦐 ChainPulse - 虾指挥出品_

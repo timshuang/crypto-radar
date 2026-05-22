@@ -427,7 +427,7 @@ CONFEOF
     echo -e "${YELLOW}  ⚠️  请妥善保存以下密码，用于 Web 登录：${NC}"
     echo -e "${GREEN}  $GENERATED_TOKEN${NC}"
     echo ""
-  fi"
+  fi
 
   echo ""
   echo "[7/9] 配置 PM2..."
