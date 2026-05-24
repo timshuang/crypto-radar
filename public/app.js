@@ -1267,6 +1267,10 @@ function initVolatilitySettings() {
       }
       minAvgVolumeInput.focus();
       volatilityMinAvgVolumeValue = parseFloat(minAvgVolumeInput.value) || 50;
+    } else {
+      minAvgVolumeInput.disabled = true;
+      minAvgVolumeInput.value = e.target.value;
+      volatilityMinAvgVolumeValue = parseInt(e.target.value);
     }
     validateHighVolumeThreshold();
   });
