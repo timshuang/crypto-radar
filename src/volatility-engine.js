@@ -358,7 +358,9 @@ class VolatilityEngine {
         const volatility = {
           windowMinutes,
           thresholdPercent,
-          enabled: true
+          enabled: true,
+          highVolumeEnabled: volatilityModule.highVolumeEnabled || false,
+          highVolumeThreshold: volatilityModule.highVolumeThreshold || 0
         };
 
         // 调试日志:打印实际使用的配置(只打印前 5 个,避免日志过多)
@@ -488,8 +490,10 @@ class VolatilityEngine {
     const volatility = {
       windowMinutes,
       thresholdPercent,
-      enabled: true
-      ,minAvgQuoteVolume3m
+      enabled: true,
+      minAvgQuoteVolume3m,
+      highVolumeEnabled: volatilityModule.highVolumeEnabled || false,
+      highVolumeThreshold: volatilityModule.highVolumeThreshold || 0
     };
 
     // 检查波动
