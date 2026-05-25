@@ -388,7 +388,7 @@ class WebServer extends EventEmitter {
         }
 
         // 其他所有 API 端点需要 token 验证
-        const token = req.headers['x-api-token'];
+        const token = req.headers['x-api-token'] || query.token;
         if (!token || token !== this.apiToken) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Unauthorized' }));
@@ -502,6 +502,10 @@ class WebServer extends EventEmitter {
     // GET /api/symbols/status - 代币状态检查
     else if (pathname === '/api/symbols/status' && method === 'GET') {
       result = this._getSymbolsStatus();
+    }
+    // GET /api/probe - 手动触发 API 格式探针
+    else if (pathname === '/api/probe' && method === 'GET') {
+      result = await this._runProbe();
     }
     // GET /api/symbols - 币种列表
     else if (pathname === '/api/symbols' && method === 'GET') {
@@ -768,6 +772,16 @@ class WebServer extends EventEmitter {
         ttl: this.CACHE_TTL
       }
     };
+  }
+
+  /**
+   * GET /api/probe - 手动触发 API 格式探针
+   */
+  async _runProbe() {
+    if (!this.app?.systemMonitor) {
+      return { success: false, error: 'SystemMonitor 未初始化' };
+    }
+    return await this.app.systemMonitor.runApiProbes();
   }
 
   /**

@@ -260,6 +260,14 @@ class SystemMonitor {
         }
       }
     }
+
+    return {
+      success: failures.length === 0,
+      passed: results.length - failures.length,
+      total: results.length,
+      time: new Date().toISOString(),
+      results
+    };
   }
 
   /**
