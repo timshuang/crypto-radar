@@ -570,6 +570,7 @@ class WSConnector {
       }
       // Alpha 全量推送或组合流
       else if (type.includes('alpha')) {
+        if (msg == null) return;
         // Alpha 全量推送支持四种格式：
         // 1) 裸数组 => [ {...}, {...} ]
         // 2) came@allTokens@ticker24 => { data: { d: [...] } }

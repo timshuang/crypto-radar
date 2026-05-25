@@ -134,7 +134,7 @@ async function init() {
     
     // 7. 初始化系统监控
     console.log('[Init] 初始化系统监控...');
-    app.systemMonitor = new SystemMonitor(app.wsConnector, app.storage);
+    app.systemMonitor = new SystemMonitor(app.wsConnector, app.storage, app.alertService);
     
     // 8. 初始化 Web 服务器
     console.log('[Init] 初始化 Web 服务器...');
