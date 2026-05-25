@@ -385,6 +385,7 @@ class VolatilityEngine {
           // 修复：将 symbol 替换为显示名称（而不是数字 ID 或 ca）
           volatilityResult.symbol = displayName;
           volatilityResult.sourceType = source;  // 传递来源类型（alpha/spot）
+          volatilityResult.volumeCheckSymbol = source === 'alpha' ? alphaId : symbol;
           
           if (volatilitySymbols.length <= 10 || volatilitySymbols.indexOf(symbolConfig) < 5) {
             const volValue = (volatilityResult.volatility || 0).toFixed(2);

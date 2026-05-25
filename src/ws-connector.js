@@ -570,14 +570,17 @@ class WSConnector {
       }
       // Alpha 全量推送或组合流
       else if (type.includes('alpha')) {
-        // Alpha 全量推送支持两种格式：
-        // 1) came@allTokens@ticker24 => { data: { d: [...] } }
-        // 2) !miniTicker@arr / !ticker@arr => [ {...}, {...} ]
+        // Alpha 全量推送支持四种格式：
+        // 1) 裸数组 => [ {...}, {...} ]
+        // 2) came@allTokens@ticker24 => { data: { d: [...] } }
+        // 3) !miniTicker@arr 信封格式 => { stream: "...", data: [...] }
+        // 4) 单条数据 => { data: { s: "...", ... } }
         const alphaFullTokens = (type === 'alpha-full' && Array.isArray(msg))
           ? msg
           : (msg.data && msg.data.d && Array.isArray(msg.data.d)
               ? msg.data.d
-              : (type === 'alpha-full' && msg.data && msg.data.s ? [msg.data] : null));
+              : (type === 'alpha-full' && Array.isArray(msg.data) ? msg.data
+                : (type === 'alpha-full' && msg.data && msg.data.s ? [msg.data] : null)));
 
         if (alphaFullTokens) {
           const tokens = alphaFullTokens;

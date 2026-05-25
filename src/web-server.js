@@ -752,11 +752,17 @@ class WebServer extends EventEmitter {
    * GET /api/cache/status - 缓存状态
    */
   _getCacheStatus() {
+    const cache = this.symbolCache || [];
+    const spotCount = cache.filter(s => s.source === 'spot').length;
+    const alphaCount = cache.filter(s => s.source === 'alpha').length;
+
     return {
       success: true,
       data: {
         cached: !!this.symbolCache,
-        count: this.symbolCache?.length || 0,
+        count: cache.length,
+        spotCount,
+        alphaCount,
         loadedAt: this.cacheLoadTime,
         age: this.cacheLoadTime ? Date.now() - this.cacheLoadTime : null,
         ttl: this.CACHE_TTL
