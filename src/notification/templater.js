@@ -7,18 +7,18 @@ function normalizeSourceType(sourceType) {
   const rawSource = String(sourceType || '').trim().toLowerCase();
 
   if (rawSource === 'alpha' || rawSource === 'alpha代币') {
-    return 'alpha';
+    return '🟡 Alpha';
   }
 
   if (rawSource === 'spot' || rawSource === '现货') {
-    return '现货';
+    return '🟦 现货';
   }
 
   if (rawSource === 'contract' || rawSource === '合约') {
-    return '合约';
+    return '🟩 合约';
   }
 
-  return '现货';
+  return '🟦 现货';
 }
 
 class Templater {

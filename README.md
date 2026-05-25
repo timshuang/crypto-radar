@@ -173,7 +173,9 @@ curl http://localhost:3000/api/cache/status
   "success": true,
   "data": {
     "cached": true,
-    "count": 2500,
+    "count": 1081,
+    "spotCount": 435,
+    "alphaCount": 646,
     "loadedAt": 1710408000000,
     "age": 120000,
     "ttl": 300000
@@ -195,6 +197,33 @@ curl -H "X-API-Token: （请查看 config.json 中的 apiToken 字段）" "http:
   ]
 }
 ```
+
+**API 探针（检测外部接口健康状态）：**
+
+```bash
+# 手动触发探针（需要 Token）
+curl "http://localhost:3000/api/probe?token=（请查看 config.json 中的 apiToken 字段）"
+
+# 浏览器直接访问
+http://localhost:3000/api/probe?token=你的TOKEN
+
+# 示例响应
+{
+  "success": true,
+  "passed": 5,
+  "total": 5,
+  "time": "2026-05-25T10:43:41.328Z",
+  "results": [
+    { "name": "现货 API", "ok": true, "detail": "3590 个交易对" },
+    { "name": "Alpha API", "ok": true, "detail": "646 个代币" },
+    { "name": "Alpha WS 格式", "ok": true, "detail": "格式正常，示例: ALPHA_158USDT" },
+    { "name": "现货 WS 格式", "ok": true, "detail": "格式正常，63 个币种" },
+    { "name": "Telegram API", "ok": true, "detail": "Bot: cysic_bot" }
+  ]
+}
+```
+
+> 探针每 24 小时自动执行一次。任何探针失败时会自动发送 TG 消息 + Bark 紧急通知。
 
 ## 部署命令
 

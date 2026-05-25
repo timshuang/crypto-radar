@@ -358,7 +358,9 @@ class VolatilityEngine {
         const volatility = {
           windowMinutes,
           thresholdPercent,
-          enabled: true
+          enabled: true,
+          highVolumeEnabled: volatilityModule.highVolumeEnabled || false,
+          highVolumeThreshold: volatilityModule.highVolumeThreshold || 0
         };
 
         // 调试日志:打印实际使用的配置(只打印前 5 个,避免日志过多)
@@ -385,6 +387,7 @@ class VolatilityEngine {
           // 修复：将 symbol 替换为显示名称（而不是数字 ID 或 ca）
           volatilityResult.symbol = displayName;
           volatilityResult.sourceType = source;  // 传递来源类型（alpha/spot）
+          volatilityResult.volumeCheckSymbol = source === 'alpha' ? alphaId : symbol;
           
           if (volatilitySymbols.length <= 10 || volatilitySymbols.indexOf(symbolConfig) < 5) {
             const volValue = (volatilityResult.volatility || 0).toFixed(2);
@@ -487,8 +490,10 @@ class VolatilityEngine {
     const volatility = {
       windowMinutes,
       thresholdPercent,
-      enabled: true
-      ,minAvgQuoteVolume3m
+      enabled: true,
+      minAvgQuoteVolume3m,
+      highVolumeEnabled: volatilityModule.highVolumeEnabled || false,
+      highVolumeThreshold: volatilityModule.highVolumeThreshold || 0
     };
 
     // 检查波动
