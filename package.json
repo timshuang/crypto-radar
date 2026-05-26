@@ -1,6 +1,6 @@
 {
   "name": "crypto_radar",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "Web3 双轨行情雷达系统 - 币安现货+Alpha 双源监控",
   "main": "src/index.js",
   "scripts": {

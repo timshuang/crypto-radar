@@ -1198,7 +1198,8 @@ let volatilityThresholdValue = 20;
 let volatilityScopeValue = 'global';
 let volatilityMinAvgVolumeValue = 100;
 let volatilityHighVolumeEnabled = false;
-let volatilityHighVolumeThresholdValue = 5000;
+let volatilityHighVolumeThresholdAlphaValue = 500;
+let volatilityHighVolumeThresholdSpotValue = 5000;
 
 // 初始化波动设置（只绑定事件，不设置默认值）
 function initVolatilitySettings() {
@@ -1290,14 +1291,27 @@ function initVolatilitySettings() {
     });
   });
 
-  // 大额阈值输入框监听
-  const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
-  if (highVolumeThresholdInput) {
-    highVolumeThresholdInput.addEventListener('input', validateHighVolumeThreshold);
-    highVolumeThresholdInput.addEventListener('change', () => {
-      const value = parseFloat(highVolumeThresholdInput.value);
+  // 大额阈值输入框监听（Alpha）
+  const highVolumeThresholdAlphaInput = document.getElementById('volatilityHighVolumeThresholdAlpha');
+  if (highVolumeThresholdAlphaInput) {
+    highVolumeThresholdAlphaInput.addEventListener('input', validateHighVolumeThreshold);
+    highVolumeThresholdAlphaInput.addEventListener('change', () => {
+      const value = parseFloat(highVolumeThresholdAlphaInput.value);
       if (value !== undefined && value !== null && value >= 1) {
-        volatilityHighVolumeThresholdValue = value;
+        volatilityHighVolumeThresholdAlphaValue = value;
+      }
+      validateHighVolumeThreshold();
+    });
+  }
+
+  // 大额阈值输入框监听（Spot）
+  const highVolumeThresholdSpotInput = document.getElementById('volatilityHighVolumeThresholdSpot');
+  if (highVolumeThresholdSpotInput) {
+    highVolumeThresholdSpotInput.addEventListener('input', validateHighVolumeThreshold);
+    highVolumeThresholdSpotInput.addEventListener('change', () => {
+      const value = parseFloat(highVolumeThresholdSpotInput.value);
+      if (value !== undefined && value !== null && value >= 1) {
+        volatilityHighVolumeThresholdSpotValue = value;
       }
       validateHighVolumeThreshold();
     });
@@ -1323,7 +1337,8 @@ async function onVolatilityToggle(checked) {
       const minAvgVolumeInput = document.getElementById('volatilityMinAvgVolumeCustom');
       const scopeRadio = document.querySelector('input[name="volatilityScope"]:checked');
       const highVolumeToggle = document.getElementById('volatilityHighVolumeToggle');
-      const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+      const highVolumeThresholdAlphaInput = document.getElementById('volatilityHighVolumeThresholdAlpha');
+      const highVolumeThresholdSpotInput = document.getElementById('volatilityHighVolumeThresholdSpot');
       
       // 调试日志：打印输入框的实际值
       console.log('[Volatility] 提交参数 - windowInput.value:', windowInput.value, 'thresholdInput.value:', thresholdInput.value);
@@ -1341,7 +1356,8 @@ async function onVolatilityToggle(checked) {
         minAvgQuoteVolume3m: parseFloat(minAvgVolumeInput.value.replace(',', '.')) || 100,
         scope: scopeRadio ? scopeRadio.value : 'global',
         highVolumeEnabled: highVolumeToggle ? highVolumeToggle.checked : false,
-        highVolumeThreshold: highVolumeThresholdInput ? parseFloat(highVolumeThresholdInput.value.replace(',', '.')) || 5000 : 5000
+        highVolumeThresholdAlpha: highVolumeThresholdAlphaInput ? parseFloat(highVolumeThresholdAlphaInput.value.replace(',', '.')) || 500 : 500,
+        highVolumeThresholdSpot: highVolumeThresholdSpotInput ? parseFloat(highVolumeThresholdSpotInput.value.replace(',', '.')) || 5000 : 5000
       };
       
       console.log('[Volatility] 最终提交的 params:', params);
@@ -1454,12 +1470,20 @@ async function loadVolatilitySettings() {
     // 联动 Bark 模式可见性
     updateBarkModeVisibility(volatilityHighVolumeEnabled);
 
-    volatilityHighVolumeThresholdValue = config.highVolumeThreshold || 5000;
-    const highVolumeThresholdInput = document.getElementById('volatilityHighVolumeThreshold');
-    if (highVolumeThresholdInput) {
-      highVolumeThresholdInput.value = volatilityHighVolumeThresholdValue;
-      highVolumeThresholdInput.disabled = !volatilityHighVolumeEnabled;
+    // 加载 Alpha 阈值（始终可编辑）
+    volatilityHighVolumeThresholdAlphaValue = config.highVolumeThresholdAlpha || 500;
+    const highVolumeThresholdAlphaInput = document.getElementById('volatilityHighVolumeThresholdAlpha');
+    if (highVolumeThresholdAlphaInput) {
+      highVolumeThresholdAlphaInput.value = volatilityHighVolumeThresholdAlphaValue;
     }
+
+    // 加载 Spot 阈值（始终可编辑）
+    volatilityHighVolumeThresholdSpotValue = config.highVolumeThresholdSpot || 5000;
+    const highVolumeThresholdSpotInput = document.getElementById('volatilityHighVolumeThresholdSpot');
+    if (highVolumeThresholdSpotInput) {
+      highVolumeThresholdSpotInput.value = volatilityHighVolumeThresholdSpotValue;
+    }
+
     validateHighVolumeThreshold();
     
     // 设置开关状态
@@ -1482,33 +1506,40 @@ async function loadVolatilitySettings() {
     volatilityThresholdValue = 20;
     volatilityScopeValue = 'global';
     volatilityHighVolumeEnabled = false;
-    volatilityHighVolumeThresholdValue = 5000;
+    volatilityHighVolumeThresholdAlphaValue = 500;
+    volatilityHighVolumeThresholdSpotValue = 5000;
   }
 }
 
-// 切换大额强提醒开关（仅更新前端状态，不立即提交）
+// 切换大额强提醒开关
 function toggleHighVolumeAlert(checked) {
   volatilityHighVolumeEnabled = checked;
   updateBarkModeVisibility(checked);
-  // 阈值输入框联动
-  const thresholdInput = document.getElementById('volatilityHighVolumeThreshold');
-  if (thresholdInput) {
-    thresholdInput.disabled = !checked;
-  }
   validateHighVolumeThreshold();
+  // 持久化到服务端
+  api('/notification/config/bark/volatility/high-volume', { method: 'PUT' })
+    .then(res => {
+      if (res.success) showToast('大额强提醒已' + (checked ? '启用' : '禁用'), 'success');
+    });
 }
 
 function validateHighVolumeThreshold() {
-  const thresholdInput = document.getElementById('volatilityHighVolumeThreshold');
+  const thresholdAlphaInput = document.getElementById('volatilityHighVolumeThresholdAlpha');
+  const thresholdSpotInput = document.getElementById('volatilityHighVolumeThresholdSpot');
   const minAvgInput = document.getElementById('volatilityMinAvgVolumeCustom');
   const warningDiv = document.querySelector('.tier-warning');
-  if (!thresholdInput || !minAvgInput || !warningDiv) return;
+  if (!thresholdAlphaInput || !thresholdSpotInput || !minAvgInput || !warningDiv) return;
 
-  const highVol = parseFloat(thresholdInput.value) || 0;
+  const highVolAlpha = parseFloat(thresholdAlphaInput.value) || 0;
+  const highVolSpot = parseFloat(thresholdSpotInput.value) || 0;
   const minAvg = parseFloat(minAvgInput.value) || 0;
 
-  if (highVol > 0 && minAvg > 0 && highVol < minAvg) {
-    warningDiv.textContent = '大额平均交易额必须 ≥ avg. 3m 过滤值';
+  const alphaInvalid = highVolAlpha > 0 && minAvg > 0 && highVolAlpha < minAvg;
+  const spotInvalid = highVolSpot > 0 && minAvg > 0 && highVolSpot < minAvg;
+
+  if (alphaInvalid || spotInvalid) {
+    const which = alphaInvalid && spotInvalid ? 'Alpha 和现货' : alphaInvalid ? 'Alpha' : '现货';
+    warningDiv.textContent = `${which}大额阈值必须 ≥ avg. 3m 过滤值`;
     warningDiv.style.color = '#ff4757';
     warningDiv.style.display = 'block';
   } else {

@@ -358,7 +358,7 @@ class VolatilityMonitor {
 
     // 大额强提醒判断：在基础条件通过后，检查是否达到大额阈值
     let isHighVolume = false;
-    if (result.highVolumeEnabled && result.highVolumeThreshold > 0) {
+    if (result.highVolumeThreshold > 0) {
       const avgVol = result.avgQuoteVolume3mPerMinute;
       if (avgVol != null && avgVol >= result.highVolumeThreshold) {
         isHighVolume = true;

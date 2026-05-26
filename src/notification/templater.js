@@ -63,6 +63,7 @@ class Templater {
     }
 
     const sourceLabel = normalizeSourceType(alert.sourceType);
+    const directionArrow = alert.direction === 'down' ? '🔻' : '🔺';
     const direction = alert.direction === 'down' ? '下跌' : '上涨';
     const hasPriceRange = alert.startPrice != null && alert.endPrice != null;
     const priceRangeText = hasPriceRange
@@ -73,7 +74,7 @@ class Templater {
       : '';
 
     const title = '波动预警';
-    const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${direction} ${Math.abs(alert.changePercent).toFixed(2)}%${priceRangeText}${avgVolumeText}`;
+    const content = `[${sourceLabel}] ${alert.symbol} ${alert.windowMinutes}min ${directionArrow}${direction} ${Math.abs(alert.changePercent).toFixed(2)}%${priceRangeText}${avgVolumeText}`;
 
     return { title, content };
   }

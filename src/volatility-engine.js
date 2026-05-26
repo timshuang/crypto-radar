@@ -360,7 +360,9 @@ class VolatilityEngine {
           thresholdPercent,
           enabled: true,
           highVolumeEnabled: volatilityModule.highVolumeEnabled || false,
-          highVolumeThreshold: volatilityModule.highVolumeThreshold || 0
+          highVolumeThreshold: source === 'alpha'
+            ? (volatilityModule.highVolumeThresholdAlpha || 0)
+            : (volatilityModule.highVolumeThresholdSpot || 0)
         };
 
         // 调试日志:打印实际使用的配置(只打印前 5 个,避免日志过多)
@@ -493,7 +495,9 @@ class VolatilityEngine {
       enabled: true,
       minAvgQuoteVolume3m,
       highVolumeEnabled: volatilityModule.highVolumeEnabled || false,
-      highVolumeThreshold: volatilityModule.highVolumeThreshold || 0
+      highVolumeThreshold: update.source === 'alpha'
+        ? (volatilityModule.highVolumeThresholdAlpha || 0)
+        : (volatilityModule.highVolumeThresholdSpot || 0)
     };
 
     // 检查波动

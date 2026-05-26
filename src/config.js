@@ -177,8 +177,16 @@ class ConfigManager extends EventEmitter {
     if (this.config.volatilityModule.highVolumeEnabled === undefined) {
       this.config.volatilityModule.highVolumeEnabled = false;
     }
-    if (this.config.volatilityModule.highVolumeThreshold === undefined) {
-      this.config.volatilityModule.highVolumeThreshold = 5000;
+    // 迁移旧字段：highVolumeThreshold -> highVolumeThresholdSpot
+    if (this.config.volatilityModule.highVolumeThreshold !== undefined && this.config.volatilityModule.highVolumeThresholdSpot === undefined) {
+      this.config.volatilityModule.highVolumeThresholdSpot = this.config.volatilityModule.highVolumeThreshold;
+      delete this.config.volatilityModule.highVolumeThreshold;
+    }
+    if (this.config.volatilityModule.highVolumeThresholdAlpha === undefined) {
+      this.config.volatilityModule.highVolumeThresholdAlpha = 500;
+    }
+    if (this.config.volatilityModule.highVolumeThresholdSpot === undefined) {
+      this.config.volatilityModule.highVolumeThresholdSpot = 5000;
     }
     
     // 币种默认值
@@ -230,7 +238,8 @@ class ConfigManager extends EventEmitter {
         thresholdPercent: 20,
         minAvgQuoteVolume3m: 100,
         highVolumeEnabled: false,
-        highVolumeThreshold: 5000
+        highVolumeThresholdAlpha: 500,
+        highVolumeThresholdSpot: 5000
       }
     };
   }

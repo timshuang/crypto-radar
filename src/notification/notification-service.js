@@ -45,8 +45,11 @@ class NotificationService {
       if (isMonitorAlert && config.bark.monitorEnabled === false) {
         console.log('[Bark] 监控列表开关关闭，跳过推送');
         results.bark = { success: false, skipped: true, reason: 'monitorEnabled=false' };
+      } else if (isVolatilityAlert && alert.isHighVolume && config.volatilityModule?.highVolumeEnabled !== true) {
+        console.log('[Bark] 大额强提醒开关关闭，跳过推送');
+        results.bark = { success: false, skipped: true, reason: 'highVolumeEnabled=false' };
       } else if (isVolatilityAlert && !alert.isHighVolume && config.bark.volatilityEnabled !== true) {
-        console.log('[Bark] 波动侦测开关关闭且非大额告警，跳过推送');
+        console.log('[Bark] 波动侦测开关关闭，跳过推送');
         results.bark = { success: false, skipped: true, reason: 'volatilityEnabled=false' };
       } else {
         // 开关已开启，执行推送

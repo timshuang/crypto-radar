@@ -620,6 +620,10 @@ class WebServer extends EventEmitter {
     else if (pathname === '/api/notification/config/bark/volatility/mode' && method === 'PUT') {
       result = await this._saveBarkVolatilityMode(body);
     }
+    // PUT /api/notification/config/bark/volatility/high-volume - 切换大额强提醒开关
+    else if (pathname === '/api/notification/config/bark/volatility/high-volume' && method === 'PUT') {
+      result = await this._toggleBarkHighVolume();
+    }
     // GET /api/config/export - 导出完整配置
     else if (pathname === '/api/config/export' && method === 'GET') {
       result = await this._exportConfig();
@@ -1308,7 +1312,8 @@ class WebServer extends EventEmitter {
       thresholdPercent: 20,
       minAvgQuoteVolume3m: 100,
       highVolumeEnabled: false,
-      highVolumeThreshold: 5000
+      highVolumeThresholdAlpha: 500,
+      highVolumeThresholdSpot: 5000
     };
 
     return {
@@ -1339,12 +1344,15 @@ class WebServer extends EventEmitter {
     config.volatilityModule.thresholdPercent = parseFloat(data?.thresholdPercent) || 20;
     config.volatilityModule.minAvgQuoteVolume3m = parseFloat(data?.minAvgQuoteVolume3m) || 100;
     config.volatilityModule.highVolumeEnabled = data?.highVolumeEnabled === true;
-    config.volatilityModule.highVolumeThreshold = parseFloat(data?.highVolumeThreshold) || 5000;
+    config.volatilityModule.highVolumeThresholdAlpha = parseFloat(data?.highVolumeThresholdAlpha) || 500;
+    config.volatilityModule.highVolumeThresholdSpot = parseFloat(data?.highVolumeThresholdSpot) || 5000;
 
     // 后端校验：大额阈值必须 ≥ minAvg
     const minAvg = config.volatilityModule.minAvgQuoteVolume3m || 100;
     let validationError = null;
-    if (config.volatilityModule.highVolumeEnabled && config.volatilityModule.highVolumeThreshold < minAvg) {
+    const alphaInvalid = config.volatilityModule.highVolumeThresholdAlpha > 0 && config.volatilityModule.highVolumeThresholdAlpha < minAvg;
+    const spotInvalid = config.volatilityModule.highVolumeThresholdSpot > 0 && config.volatilityModule.highVolumeThresholdSpot < minAvg;
+    if (alphaInvalid || spotInvalid) {
       validationError = '大额阈值不能小于 avg. 3m 过滤值，波动侦测已关闭';
       config.volatilityModule.enabled = false;
       config.volatilityModule.highVolumeEnabled = false;
@@ -1365,7 +1373,8 @@ class WebServer extends EventEmitter {
     const silenceMinutes = config.settings?.alertSilenceMinutes || 5;
     const minAvgQuoteVolume3m = config.volatilityModule.minAvgQuoteVolume3m || 100;
     const highVolumeEnabled = config.volatilityModule.highVolumeEnabled === true;
-    const highVolumeThreshold = config.volatilityModule.highVolumeThreshold || 5000;
+    const highVolumeThresholdAlpha = config.volatilityModule.highVolumeThresholdAlpha || 500;
+    const highVolumeThresholdSpot = config.volatilityModule.highVolumeThresholdSpot || 5000;
     
     let rangeText;
     if (scope === 'global') {
@@ -1383,7 +1392,8 @@ class WebServer extends EventEmitter {
 
 范围：${rangeText}
 窗口：${windowMinutes}min | 阈值：${thresholdPercent}% | 静默期：${silenceMinutes}分钟 | avg. 3m：${minAvgQuoteVolume3m}U
-是否开启大额交易提醒：${highVolumeEnabled ? `是（≥ ${highVolumeThreshold}U）` : '否'}`;
+是否开启大额交易提醒：${highVolumeEnabled ? `是` : '否'}
+大额阈值（Alpha）：≥ ${highVolumeThresholdAlpha}U | 大额阈值（现货）：≥ ${highVolumeThresholdSpot}U`;
     
     // 发送 TG 通知（不等待，不阻塞）
     if (this.app?.alertService) {
@@ -1884,6 +1894,36 @@ class WebServer extends EventEmitter {
       return {
         success: false,
         error: 'SAVE_FAILED',
+        message: err.message
+      };
+    }
+  }
+
+  /**
+   * 切换大额强提醒开关
+   */
+  async _toggleBarkHighVolume() {
+    try {
+      const config = this.configManager.config;
+      
+      // 切换状态
+      const currentEnabled = config.volatilityModule?.highVolumeEnabled === true;
+      const newEnabled = !currentEnabled;
+      
+      config.volatilityModule = config.volatilityModule || {};
+      config.volatilityModule.highVolumeEnabled = newEnabled;
+      
+      await this.configManager.save();
+      
+      return {
+        success: true,
+        message: `大额强提醒已${newEnabled ? '启用' : '禁用'}`,
+        data: { highVolumeEnabled: newEnabled }
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: 'TOGGLE_FAILED',
         message: err.message
       };
     }
